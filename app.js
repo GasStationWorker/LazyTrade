@@ -601,10 +601,33 @@ const WEAPON_CLASSES = new Set([
   'Bows','Staves','Warstaves','Two Hand Swords','Two Hand Axes','Two Hand Maces',
   'Sceptres','Flails','Spears','Crossbows',
 ]);
-// Patterns that become local on defence items (matches APAT's mn object)
-const LOCAL_DEFENCE_RE = /increased (Armour|Evasion|Energy Shield|Ward)|\bto Armour$|\bto Evasion Rating$|\bto maximum Energy Shield$|\bto Ward$/i;
-// Patterns that become local on weapons (matches APAT's pH set)
-const LOCAL_WEAPON_RE = /increased Physical Damage|Adds \d.*(?:Physical|Lightning|Cold|Fire|Chaos) Damage|increased (Critical Strike Chance|Attack Speed)/i;
+// Patterns that become local on defence items — derived from actual trade API "(Local)" stat entries
+// Covers both PoE 1 (hybrid mods, +# prefix) and PoE 2 (block chance, no + prefix)
+const LOCAL_DEFENCE_RE = new RegExp([
+  'increased Armour$',
+  'increased Evasion Rating$',
+  'increased Energy Shield$',
+  'increased Block chance$',
+  'increased Armour and Evasion$',
+  'increased Armour and Energy Shield$',
+  'increased Evasion and Energy Shield$',
+  'increased Armour, Evasion and Energy Shield$',
+  '\\bto Armour$',
+  '\\bto Evasion Rating$',
+  '\\bto maximum Energy Shield$',
+].join('|'), 'i');
+
+// Patterns that become local on weapons — derived from actual trade API "(Local)" stat entries
+// Covers both PoE 1 (adds damage, leech, poison) and PoE 2 (attack speed, accuracy)
+const LOCAL_WEAPON_RE = new RegExp([
+  'increased Attack Speed$',
+  'Adds \\d.+(?:Physical|Lightning|Cold|Fire|Chaos) Damage$',
+  '\\bto Accuracy Rating$',
+  'Physical Attack Damage Leeched as Life',
+  'Physical Attack Damage Leeched as Mana',
+  'chance to Poison on Hit$',
+  '^Culling Strike$',
+].join('|'), 'i');
 
 function isLocalMod(modText, itemClass) {
   if (DEFENCE_CLASSES.has(itemClass) && LOCAL_DEFENCE_RE.test(modText)) return true;
@@ -637,8 +660,15 @@ function findStat(modText, preferType = 'explicit', itemClass = '') {
   const norm       = normMod(modText);
   const normPlus   = '+' + norm;
   const normNoSign = norm.replace(/^[+\-]#?\s*/, '').trim();
-  const normLocal  = norm + ' (local)';
   const local      = isLocalMod(modText, itemClass);
+
+  // Build all "(Local)" variants to try — the API uses "+# to Armour (Local)" etc.
+  const localVariants = local ? [
+    norm + ' (local)',
+    normPlus + ' (local)',
+    '+' + normNoSign + ' (local)',
+    normNoSign + ' (local)',
+  ] : [];
 
   // Search order: preferred type first, then other useful types
   const order = [preferType, 'explicit', 'fractured', 'crafted', 'implicit', 'enchant']
@@ -649,7 +679,8 @@ function findStat(modText, preferType = 'explicit', itemClass = '') {
     for (const type of order) {
       for (const s of statsDb) {
         if (s.type !== type) continue;
-        if (s.text.toLowerCase() === normLocal) return s;
+        const st = s.text.toLowerCase();
+        if (localVariants.some(v => st === v)) return s;
       }
     }
   }
