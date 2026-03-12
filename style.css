@@ -599,6 +599,64 @@ textarea#item-input::placeholder { color: var(--text-dim); }
 .result-mods .mod.enchant   { color: var(--col-enchant); }
 .result-mods .mod.implicit  { color: var(--col-implicit); }
 
+/* ── Influence ────────────────────────────────────────────────────────────── */
+.influence-badges { display: flex; gap: 6px; padding: 4px 10px; flex-wrap: wrap; }
+.influence-badge {
+  font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 3px;
+  text-transform: uppercase; letter-spacing: .5px;
+}
+.inf-shaper          { background: #1a3a5c; color: #5ca0e8; border: 1px solid #3a6a9c; }
+.inf-elder           { background: #2a1a3a; color: #b88adc; border: 1px solid #5a3a7a; }
+.inf-crusader        { background: #3a3010; color: #e8c84a; border: 1px solid #8a7a30; }
+.inf-hunter          { background: #1a3a1a; color: #5ac85a; border: 1px solid #3a7a3a; }
+.inf-redeemer        { background: #1a2a3a; color: #88c8f8; border: 1px solid #4a7aa0; }
+.inf-warlord         { background: #3a1a1a; color: #e86050; border: 1px solid #7a3a3a; }
+.inf-searing_exarch  { background: #3a2010; color: #e89040; border: 1px solid #8a5a20; }
+.inf-eater_of_worlds { background: #102a2a; color: #40c0b0; border: 1px solid #206a5a; }
+.tag-influence       { font-size: 10px; font-weight: 600; }
+.tag-shaper          { background: #1a3a5c; color: #5ca0e8; }
+.tag-elder           { background: #2a1a3a; color: #b88adc; }
+.tag-crusader        { background: #3a3010; color: #e8c84a; }
+.tag-hunter          { background: #1a3a1a; color: #5ac85a; }
+.tag-redeemer        { background: #1a2a3a; color: #88c8f8; }
+.tag-warlord         { background: #3a1a1a; color: #e86050; }
+.tag-exarch          { background: #3a2010; color: #e89040; }
+.tag-eater           { background: #102a2a; color: #40c0b0; }
+.gem-label           { color: #1ba29b; }
+.pseudo-label        { color: #d0a050; }
+.pseudo-select       { width: 100%; background: var(--panel); color: var(--text); border: 1px solid var(--border); padding: 4px 6px; border-radius: 4px; font-size: 12px; margin-bottom: 4px; }
+.pseudo-add-row      { padding: 2px 0; }
+.mod-type-pseudo     { border-left: 2px solid #d0a050; padding-left: 6px; }
+.btn-remove-pseudo   { background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 16px; padding: 0 4px; line-height: 1; }
+.btn-remove-pseudo:hover { color: #e86050; }
+.stat-group-controls { display: flex; align-items: center; gap: 8px; padding: 4px 0; flex-wrap: wrap; }
+.stat-group-select   { background: var(--panel); color: var(--text); border: 1px solid var(--border); padding: 3px 6px; border-radius: 4px; font-size: 12px; }
+
+/* ── Search Mode Toggle ──────────────────────────────────────────────────── */
+.search-mode-toggle  { display: flex; gap: 0; margin-bottom: 8px; }
+.mode-btn {
+  flex: 1; padding: 6px 12px; background: var(--panel); color: var(--text-dim);
+  border: 1px solid var(--border); cursor: pointer; font-size: 13px; font-weight: 600;
+  transition: background .15s, color .15s;
+}
+.mode-btn:first-child { border-radius: 4px 0 0 4px; }
+.mode-btn:last-child  { border-radius: 0 4px 4px 0; }
+.mode-btn.active      { background: var(--gold-dim); color: var(--gold); border-color: var(--gold-dim); }
+
+/* ── Exchange Panel ──────────────────────────────────────────────────────── */
+.exchange-row        { display: flex; align-items: center; gap: 8px; padding: 6px 0; }
+.exchange-row label  { min-width: 70px; font-size: 13px; color: var(--text-dim); font-weight: 600; }
+.exchange-select     { flex: 1; background: var(--panel); color: var(--text); border: 1px solid var(--border); padding: 5px 8px; border-radius: 4px; font-size: 12px; }
+.exchange-offer      { font-size: 12px; color: var(--text); padding: 2px 0; }
+
+/* ── Result Card Enhancements ─────────────────────────────────────────── */
+.card-icon           { width: 40px; height: 40px; object-fit: contain; border-radius: 3px; flex-shrink: 0; }
+.card-sockets        { display: flex; align-items: center; gap: 1px; font-size: 10px; margin-top: 2px; }
+.card-sockets .sock  { width: 14px; height: 14px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 8px; border: 1px solid var(--border); }
+.sock-a              { background: #444; color: #ccc; }
+.tag-gem-lvl         { background: #0a2a28; color: #1ba29b; }
+.tag-gem-q           { background: #0a2a28; color: #1ba29b; }
+
 /* ── Scrollbars ───────────────────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: var(--bg); }

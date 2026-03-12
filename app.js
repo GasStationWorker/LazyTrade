@@ -45,6 +45,20 @@ $('open-trade-btn').addEventListener('click', openInTradeSite);
 $('dismiss-cors').addEventListener('click', () => corsWarning.style.display = 'none');
 $('poe1-btn').addEventListener('click', () => switchGame('poe1'));
 $('poe2-btn').addEventListener('click', () => switchGame('poe2'));
+$('mode-search').addEventListener('click', () => switchMode('search'));
+$('mode-exchange').addEventListener('click', () => switchMode('exchange'));
+$('exchange-search-btn').addEventListener('click', handleExchangeSearch);
+
+let staticData = []; // [{id, label, entries: [{id, text, image}]}]
+
+function switchMode(mode) {
+  $('mode-search').classList.toggle('active', mode === 'search');
+  $('mode-exchange').classList.toggle('active', mode === 'exchange');
+  $('item-search-panel').style.display = mode === 'search' ? 'block' : 'none';
+  $('exchange-panel').style.display    = mode === 'exchange' ? 'block' : 'none';
+  parsedSection.style.display = 'none';
+  if (mode === 'exchange' && !staticData.length) loadStaticData();
+}
 
 function switchGame(g) {
   game = g;
@@ -91,7 +105,7 @@ async function loadStatsDb() {
       statsDb = [];
       for (const group of data.result) {
         for (const e of (group.entries || [])) {
-          statsDb.push({ id: e.id, text: e.text, type: e.type });
+          statsDb.push({ id: e.id, text: e.text, type: e.type, options: e.option?.options || null });
         }
       }
       console.log(`Stats DB: ${statsDb.length} entries`);
@@ -113,6 +127,179 @@ async function fetchLeagues() {
       }
     }
   } catch { /* use defaults */ }
+}
+
+// ── Static Data (for exchange) ────────────────────────────────────────────
+async function loadStaticData() {
+  try {
+    const res  = await apiFetch('/data/static');
+    const data = await res.json();
+    if (data.result) {
+      staticData = data.result;
+      populateExchangeDropdowns();
+    }
+  } catch (e) { console.warn('Static data failed:', e.message); }
+}
+
+function populateExchangeDropdowns() {
+  const want = $('exchange-want');
+  const have = $('exchange-have');
+  if (!want || !have) return;
+  want.innerHTML = '';
+  have.innerHTML = '';
+  for (const group of staticData) {
+    const optWant = document.createElement('optgroup');
+    optWant.label = group.label || group.id;
+    const optHave = document.createElement('optgroup');
+    optHave.label = group.label || group.id;
+    for (const entry of (group.entries || [])) {
+      const oW = document.createElement('option');
+      oW.value = entry.id; oW.textContent = entry.text;
+      optWant.appendChild(oW);
+      const oH = document.createElement('option');
+      oH.value = entry.id; oH.textContent = entry.text;
+      optHave.appendChild(oH);
+    }
+    want.appendChild(optWant);
+    have.appendChild(optHave);
+  }
+}
+
+async function handleExchangeSearch() {
+  const want   = $('exchange-want')?.value;
+  const have   = $('exchange-have')?.value;
+  const status = $('exchange-status');
+  if (!want || !have) { status.textContent = 'Select both currencies.'; return; }
+
+  $('exchange-search-btn').disabled = true;
+  status.textContent = 'Searching…';
+  status.className   = 'search-status';
+  resultsList.innerHTML = '';
+  loadMoreBtn.style.display = 'none';
+
+  try {
+    const league  = leagueSelect.value;
+    const payload = {
+      exchange: {
+        status: { option: onlineOnly.checked ? 'online' : 'any' },
+        have: [have],
+        want: [want],
+      }
+    };
+    const minStock = parseInt($('exchange-min')?.value);
+    if (!isNaN(minStock) && minStock > 0) payload.exchange.minimum = minStock;
+
+    console.log('Exchange query:', JSON.stringify(payload, null, 2));
+
+    const res = await apiFetch(`/exchange/${encodeURIComponent(league)}`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(payload),
+    });
+
+    if (res.status === 429)
+      throw new Error(`Rate limited. Retry in ${res.headers.get('Retry-After') || 60}s.`);
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`Exchange search failed (${res.status}): ${body.slice(0, 200)}`);
+    }
+
+    const data = await res.json();
+    lastSearchId  = data.id;
+    lastTotal     = data.total || 0;
+    lastResultIds = Object.keys(data.result || {});
+
+    status.textContent = `${lastTotal} offers found`;
+    placeholder.style.display    = 'none';
+    resultsSection.style.display = 'block';
+    resultCount.textContent      = `${lastTotal} offers`;
+
+    const gameSlug = game === 'poe1' ? 'trade' : 'trade2';
+    tradeLink.href         = `https://www.pathofexile.com/${gameSlug}/exchange/${encodeURIComponent(league)}/${data.id}`;
+    tradeLink.style.display = 'inline';
+
+    if (lastResultIds.length) {
+      await loadExchangeBatch(0, 20);
+    } else {
+      resultsList.innerHTML = '<div class="no-results">No offers found.</div>';
+    }
+  } catch (e) {
+    status.textContent = e.message;
+    status.className   = 'search-status error';
+  } finally {
+    $('exchange-search-btn').disabled = false;
+  }
+}
+
+async function loadExchangeBatch(offset, count) {
+  const ids = lastResultIds.slice(offset, offset + count);
+  if (!ids.length) return;
+  try {
+    for (let i = 0; i < ids.length; i += FETCH_CHUNK) {
+      const chunk = ids.slice(i, i + FETCH_CHUNK);
+      const res = await apiFetch(`/fetch/${chunk.join(',')}?query=${lastSearchId}&exchange`);
+      if (res.status === 429)
+        throw new Error(`Rate limited. Retry in ${res.headers.get('Retry-After') || 60}s.`);
+      if (!res.ok) throw new Error(`Fetch failed (${res.status})`);
+      const data = await res.json();
+      appendExchangeResults(data.result || []);
+    }
+    const shown = resultsList.querySelectorAll('.result-card').length;
+    loadMoreBtn.style.display = shown < lastResultIds.length ? 'block' : 'none';
+  } catch (e) {
+    const status = $('exchange-status');
+    status.textContent = e.message;
+    status.className   = 'search-status error';
+  }
+}
+
+function appendExchangeResults(results) {
+  for (const r of results) {
+    if (!r?.listing) continue;
+    const { listing } = r;
+    const account = listing.account || {};
+    const online  = account.online != null;
+    const ign     = account.lastCharacterName || account.name || '?';
+
+    // Exchange offers have listing.offers array
+    const offers = listing.offers || [];
+    let offerHtml = '';
+    for (const offer of offers) {
+      const exchange = offer.exchange || {};
+      const item     = offer.item || {};
+      const ratio    = `${exchange.amount || '?'} : ${item.amount || '?'}`;
+      const cur1     = exchange.currency || '';
+      const cur2     = item.currency || '';
+      const stock    = item.stock != null ? ` (stock: ${item.stock})` : '';
+      offerHtml += `<div class="exchange-offer">${esc(ratio)} — ${esc(cur1)} for ${esc(cur2)}${stock}</div>`;
+    }
+
+    const card = document.createElement('div');
+    card.className = 'result-card';
+    card.innerHTML = `
+      <div class="card-main">
+        <div class="card-price">${offerHtml || '<span class="no-price">—</span>'}</div>
+        <div class="card-right">
+          <div class="card-seller">
+            <span class="status-dot ${online ? 'online' : 'offline'}"></span>
+            ${esc(ign)}
+          </div>
+          <div class="card-time">${listing.indexed ? timeAgo(listing.indexed) : ''}</div>
+          <div class="card-actions">
+            <button class="btn-whisper" data-whisper="${esc(listing.whisper || '')}">Whisper</button>
+          </div>
+        </div>
+      </div>
+    `;
+    card.querySelector('.btn-whisper')?.addEventListener('click', function () {
+      navigator.clipboard.writeText(this.dataset.whisper).then(() => {
+        this.textContent = 'Copied!';
+        this.classList.add('copied');
+        setTimeout(() => { this.textContent = 'Whisper'; this.classList.remove('copied'); }, 1500);
+      });
+    });
+    resultsList.appendChild(card);
+  }
 }
 
 // ── Item Parsing ──────────────────────────────────────────────────────────────
@@ -143,6 +330,32 @@ const STANDALONE = new Set([
   'Searing Exarch Item','Eater of Worlds Item',
 ]);
 
+const CATEGORY_MAP = {
+  'Claws': 'weapon.claw', 'Daggers': 'weapon.dagger', 'Rune Daggers': 'weapon.runedagger',
+  'Wands': 'weapon.wand', 'One Hand Swords': 'weapon.onesword',
+  'Thrusting One Hand Swords': 'weapon.onesword', 'One Hand Axes': 'weapon.oneaxe',
+  'One Hand Maces': 'weapon.onemace', 'Bows': 'weapon.bow',
+  'Staves': 'weapon.staff', 'Warstaves': 'weapon.warstaff',
+  'Two Hand Swords': 'weapon.twosword', 'Two Hand Axes': 'weapon.twoaxe',
+  'Two Hand Maces': 'weapon.twomace', 'Sceptres': 'weapon.sceptre',
+  'Flails': 'weapon.flail', 'Spears': 'weapon.spear', 'Crossbows': 'weapon.crossbow',
+  'Body Armours': 'armour.chest', 'Helmets': 'armour.helmet',
+  'Gloves': 'armour.gloves', 'Boots': 'armour.boots',
+  'Shields': 'armour.shield', 'Quivers': 'armour.quiver',
+  'Belts': 'accessory.belt', 'Rings': 'accessory.ring', 'Amulets': 'accessory.amulet',
+  'Jewels': 'jewel', 'Jewel': 'jewel', 'Abyss Jewels': 'jewel.abyss',
+  'Maps': 'map', 'Life Flasks': 'flask', 'Utility Flasks': 'flask',
+  'Mana Flasks': 'flask', 'Hybrid Flasks': 'flask',
+  'Charms': 'charm', 'Tinctures': 'tincture',
+};
+
+const INFLUENCE_MAP = {
+  'Shaper Item': 'shaper', 'Elder Item': 'elder',
+  'Crusader Item': 'crusader', 'Hunter Item': 'hunter',
+  'Redeemer Item': 'redeemer', 'Warlord Item': 'warlord',
+  'Searing Exarch Item': 'searing_exarch', 'Eater of Worlds Item': 'eater_of_worlds',
+};
+
 function parseItemText(text) {
   const lines    = text.trim().split('\n').map(l => l.trim());
   const sections = [];
@@ -160,10 +373,18 @@ function parseItemText(text) {
     sockets: '', socketCount: 0, linkCount: 0,
     explicitMods: [], implicitMods: [], craftedMods: [], fracturedMods: [], enchantMods: [],
     corrupted: false, mirrored: false, identified: true, synthesised: false,
+    influences: [],
     // Weapon
     physDps: null, eleDps: null, totalDps: null, critChance: null, aps: null,
     // Defence
     armour: null, evasion: null, energyShield: null, ward: null,
+    // Gem
+    gemLevel: null, gemExperience: null,
+    // Map
+    mapTier: null,
+    // Misc
+    blockChance: null, requiresLevel: null, stackSize: null,
+    category: 'unknown',
   };
 
   // ── Header ──
@@ -202,6 +423,7 @@ function parseItemText(text) {
       if (l === 'Corrupted')   { item.corrupted = true; continue; }
       if (l === 'Mirrored')    { item.mirrored  = true; continue; }
       if (l === 'Unidentified'){ item.identified = false; continue; }
+      if (INFLUENCE_MAP[l])    { item.influences.push(INFLUENCE_MAP[l]); continue; }
       if (STANDALONE.has(l) || l.startsWith('Note:')) continue;
     }
 
@@ -236,6 +458,17 @@ function parseItemText(text) {
           const m = l.match(/(\d+)/); if (m) item.energyShield = parseInt(m[1]);
         } else if (l.startsWith('Ward:')) {
           const m = l.match(/(\d+)/); if (m) item.ward = parseInt(m[1]);
+        } else if (l.startsWith('Map Tier:')) {
+          const m = l.match(/(\d+)/); if (m) item.mapTier = parseInt(m[1]);
+        } else if (l.startsWith('Chance to Block:')) {
+          const m = l.match(/(\d+)%/); if (m) item.blockChance = parseInt(m[1]);
+        } else if (l.startsWith('Stack Size:')) {
+          const m = l.match(/(\d+)\/(\d+)/);
+          if (m) item.stackSize = { current: parseInt(m[1]), max: parseInt(m[2]) };
+        } else if (l.startsWith('Level:') && !sec.some(s => s === 'Requirements:')) {
+          const m = l.match(/Level:\s*(\d+)/); if (m) item.gemLevel = parseInt(m[1]);
+        } else if (l.startsWith('Experience:')) {
+          item.gemExperience = l.replace('Experience:', '').trim();
         } else if (l === 'Corrupted')  { item.corrupted = true; }
         else if (l === 'Mirrored')     { item.mirrored  = true; }
       }
@@ -278,6 +511,18 @@ function parseItemText(text) {
     }
   }
 
+  // ── Requires Level (second pass — find Requirements section) ──
+  for (let i = 1; i < sections.length; i++) {
+    const sec = sections[i];
+    if (sec.some(l => l === 'Requirements:')) {
+      for (const l of sec) {
+        const m = l.match(/^Level:\s*(\d+)/);
+        if (m) { item.requiresLevel = parseInt(m[1]); break; }
+      }
+      break;
+    }
+  }
+
   // ── DPS calculation ──
   if (item.aps) {
     if (item._physLine) {
@@ -293,7 +538,33 @@ function parseItemText(text) {
     item.totalDps = round1((item.physDps || 0) + (item.eleDps || 0));
   }
 
+  item.category = classifyItemType(item);
   return item;
+}
+
+function classifyItemType(item) {
+  const ic = item.itemClass;
+  if (!ic) return 'unknown';
+  if (ic === 'Divination Cards' || ic === 'Divination Card') return 'card';
+  if (ic === 'Stackable Currency' || ic === 'Currency') return 'currency';
+  if (ic === 'Map Fragments' || ic === 'Misc Map Items') return 'fragment';
+  if (ic === 'Maps') return 'map';
+  if (ic.includes('Skill Gems') || ic === 'Gems' || ic === 'Support Gems' || ic === 'Active Skill Gems') return 'gem';
+  if (/Flask/i.test(ic)) return 'flask';
+  if (ic === 'Jewels' || ic === 'Jewel' || ic === 'Abyss Jewels') return 'jewel';
+  if (ic === 'Quivers') return 'quiver';
+  if (ic === 'Charms') return 'charm';
+  if (ic === 'Tinctures') return 'tincture';
+  if (ic === 'Trinkets') return 'trinket';
+  if (ic === 'Heist Contracts' || ic === 'Blueprints') return 'heist';
+  if (ic === 'Logbooks') return 'logbook';
+  if (ic === 'Sentinels') return 'sentinel';
+  if (ic === 'Memories') return 'memory';
+  if (ic === 'Sanctum Relics') return 'sanctumrelic';
+  if (WEAPON_CLASSES.has(ic)) return 'weapon';
+  if (DEFENCE_CLASSES.has(ic)) return 'armour';
+  if (['Rings','Amulets','Belts'].includes(ic)) return 'accessory';
+  return 'unknown';
 }
 
 function parseSockets(item) {
@@ -341,6 +612,26 @@ function isLocalMod(modText, itemClass) {
   return false;
 }
 
+// Match an item mod against an option-type stat (where # is a dropdown, not a number).
+// Returns the option id (integer) on success, or null.
+function matchOptionValue(modText, stat) {
+  if (!stat.options || !stat.options.length) return null;
+  const hashIdx = stat.text.indexOf('#');
+  if (hashIdx === -1) return null;
+  const prefix    = stat.text.slice(0, hashIdx).toLowerCase();
+  const suffix    = stat.text.slice(hashIdx + 1).toLowerCase();
+  const modLower  = modText.toLowerCase();
+  if (!modLower.startsWith(prefix)) return null;
+  let candidate   = modLower.slice(prefix.length);
+  if (suffix && candidate.endsWith(suffix)) candidate = candidate.slice(0, candidate.length - suffix.length);
+  candidate = candidate.trim();
+  const candNorm  = normMod(candidate);
+  for (const opt of stat.options) {
+    if (opt.text.toLowerCase() === candidate || normMod(opt.text) === candNorm) return opt.id;
+  }
+  return null;
+}
+
 function findStat(modText, preferType = 'explicit', itemClass = '') {
   if (!statsDb.length) return null;
   const norm       = normMod(modText);
@@ -371,13 +662,29 @@ function findStat(modText, preferType = 'explicit', itemClass = '') {
     }
   }
 
+  // Option-type stat match (e.g. "Added Small Passive Skills grant: #" where # is a dropdown)
+  for (const type of order) {
+    for (const s of statsDb) {
+      if (s.type !== type || !s.options) continue;
+      const optId = matchOptionValue(modText, s);
+      if (optId !== null) return { ...s, optionId: optId };
+    }
+  }
+
   // Fuzzy fallback — only within preferred + explicit, skip (Local) entries for non-local mods
   const words = normNoSign.replace(/[#%]/g, '').trim().split(/\s+/).filter(w => w.length > 2);
   if (!words.length) return null;
-  const pool = statsDb.filter(s =>
-    (s.type === preferType || s.type === 'explicit') &&
-    (local || !s.text.toLowerCase().includes('(local)'))
-  );
+  // For cluster jewel enchants, keep "grant:" vs "also grant:" mutually exclusive
+  const hasAlsoGrant = normNoSign.includes('also grant:');
+  const hasGrantOnly = normNoSign.includes('grant:') && !hasAlsoGrant;
+  const pool = statsDb.filter(s => {
+    if (s.type !== preferType && s.type !== 'explicit') return false;
+    if (!local && s.text.toLowerCase().includes('(local)')) return false;
+    const st = s.text.toLowerCase();
+    if (hasGrantOnly  && st.includes('also grant:')) return false;
+    if (hasAlsoGrant  && st.includes('grant:') && !st.includes('also grant:')) return false;
+    return true;
+  });
   let best = null, bestRatio = 0;
   for (const s of pool) {
     const st = s.text.toLowerCase();
@@ -409,11 +716,54 @@ function handleParse() {
     return;
   }
   renderParsedItem(parsedData);
+  attachDynamicListeners();
   parsedSection.style.display  = 'block';
   resultsSection.style.display = 'none';
   placeholder.style.display    = 'flex';
   searchStatus.textContent  = '';
   searchStatus.className    = 'search-status';
+}
+
+let pseudoCounter = 0;
+function attachDynamicListeners() {
+  // Stat group type toggle — show/hide COUNT min input
+  const groupSelect = $('stat-group-type');
+  const countRow    = $('count-value-row');
+  if (groupSelect && countRow) {
+    groupSelect.addEventListener('change', () => {
+      countRow.style.display = groupSelect.value === 'count' ? 'inline-flex' : 'none';
+    });
+  }
+
+  // Pseudo stat dropdown — add rows dynamically
+  const pseudoSelect = $('pseudo-stat-select');
+  const pseudoList   = $('pseudo-stat-list');
+  if (pseudoSelect && pseudoList) {
+    pseudoSelect.addEventListener('change', () => {
+      const statId = pseudoSelect.value;
+      if (!statId) return;
+      const stat = statsDb.find(s => s.id === statId);
+      if (!stat) return;
+      pseudoCounter++;
+      const id = `pseudo-${pseudoCounter}`;
+      const row = document.createElement('div');
+      row.className = 'toggle-row mod-type-pseudo';
+      row.dataset.statId = statId;
+      row.innerHTML = `
+        <input type="checkbox" id="mod-${id}" checked>
+        <label for="mod-${id}">${esc(stat.text)}</label>
+        <span class="match-ok" title="${esc(stat.id)}">✓</span>
+        <div class="row-inputs">
+          <span class="filter-label">min</span><input type="number" id="mod-min-${id}" value="" step="1" class="num-input" placeholder="—">
+          <span class="filter-label">max</span><input type="number" id="mod-max-${id}" value="" step="1" class="num-input" placeholder="∞">
+        </div>
+        <button class="btn-remove-pseudo" title="Remove">&times;</button>
+      `;
+      row.querySelector('.btn-remove-pseudo').addEventListener('click', () => row.remove());
+      pseudoList.appendChild(row);
+      pseudoSelect.value = '';
+    });
+  }
 }
 
 function renderParsedItem(item) {
@@ -426,6 +776,16 @@ function renderParsedItem(item) {
   h += `<div class="item-base">${esc(item.baseType)}</div>`;
   h += `</div>`;
 
+  // Influence badges
+  if (item.influences.length) {
+    h += `<div class="influence-badges">`;
+    for (const inf of item.influences) {
+      const label = inf.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+      h += `<span class="influence-badge inf-${inf}">${esc(label)}</span>`;
+    }
+    h += `</div>`;
+  }
+
   h += `<div class="filter-list">`;
 
   // Name (unique only)
@@ -434,10 +794,62 @@ function renderParsedItem(item) {
     h += sep();
   }
 
+  // Category filter (any base of this type)
+  if (item.rarity !== 'unique' && CATEGORY_MAP[item.itemClass]) {
+    h += toggleRow('toggle-category', `Category: ${esc(item.itemClass)} (any base)`, false);
+    h += sep();
+  }
+
+  // Gem-specific filters
+  if (item.category === 'gem') {
+    h += `<div class="mod-group">`;
+    h += `<div class="mod-group-label gem-label">Gem Properties</div>`;
+    if (item.gemLevel) {
+      h += toggleRowInput('toggle-gem-level', `Gem Level: ${item.gemLevel}`, true,
+        `<span class="filter-label">min</span><input type="number" id="gem-level-min" value="${item.gemLevel}" class="num-input">` +
+        `<span class="filter-label">max</span><input type="number" id="gem-level-max" value="" class="num-input">`
+      );
+    }
+    if (item.quality) {
+      h += toggleRowInput('toggle-gem-quality', `Quality: +${item.quality}%`, false,
+        `<span class="filter-label">min</span><input type="number" id="gem-quality-min" value="${item.quality}" class="num-input">` +
+        `<span class="filter-label">max</span><input type="number" id="gem-quality-max" value="" class="num-input">`
+      );
+    }
+    h += `</div>${sep()}`;
+  }
+
+  // Map-specific filters
+  if (item.category === 'map' && item.mapTier) {
+    h += `<div class="mod-group">`;
+    h += `<div class="mod-group-label">Map Properties</div>`;
+    h += toggleRowInput('toggle-map-tier', `Map Tier: ${item.mapTier}`, true,
+      `<span class="filter-label">min</span><input type="number" id="map-tier-min" value="${item.mapTier}" class="num-input">` +
+      `<span class="filter-label">max</span><input type="number" id="map-tier-max" value="" class="num-input">`
+    );
+    h += `</div>${sep()}`;
+  }
+
+  // Quality (non-gem items — gems handled above)
+  if (item.quality && item.category !== 'gem') {
+    h += toggleRowInput('toggle-quality', `Quality: +${item.quality}%${item.qualityType ? ` (${item.qualityType})` : ''}`, false,
+      `<span class="filter-label">min</span><input type="number" id="quality-min" value="${item.quality}" class="num-input">`
+    );
+    h += sep();
+  }
+
   // Item level
   if (item.itemLevel) {
     h += toggleRowInput('toggle-ilvl', `Item Level: ${item.itemLevel}`, true,
       `<span class="filter-label">min</span><input type="number" id="ilvl-min" value="${item.itemLevel}" class="num-input">`
+    );
+    h += sep();
+  }
+
+  // Requires Level
+  if (item.requiresLevel) {
+    h += toggleRowInput('toggle-req-level', `Requires Level: ${item.requiresLevel}`, false,
+      `<span class="filter-label">max</span><input type="number" id="req-level-max" value="${item.requiresLevel}" class="num-input">`
     );
     h += sep();
   }
@@ -476,6 +888,19 @@ function renderParsedItem(item) {
     );
     h += sep();
   }
+
+  // Stat group operator
+  h += `<div class="stat-group-controls">`;
+  h += `<label class="filter-label">Stat filter mode</label>`;
+  h += `<select id="stat-group-type" class="stat-group-select">`;
+  h += `<option value="and">AND (all must match)</option>`;
+  h += `<option value="count">COUNT (N must match)</option>`;
+  h += `<option value="not">NOT (none must match)</option>`;
+  h += `</select>`;
+  h += `<div id="count-value-row" style="display:none">`;
+  h += `<span class="filter-label">min</span><input type="number" id="count-min" value="1" class="num-input" min="1">`;
+  h += `</div>`;
+  h += `</div>${sep()}`;
 
   // Enchant mods
   if (item.enchantMods.length) {
@@ -520,6 +945,47 @@ function renderParsedItem(item) {
 
   h += sep();
 
+  // Pseudo stats
+  h += `<div class="mod-group pseudo-stats">`;
+  h += `<div class="mod-group-label pseudo-label">Pseudo Stats</div>`;
+  h += `<div class="pseudo-add-row">`;
+  h += `<select id="pseudo-stat-select" class="pseudo-select">`;
+  h += `<option value="">+ Add pseudo stat…</option>`;
+  const COMMON_PSEUDO_PREFIXES = [
+    'pseudo.pseudo_total_life',
+    'pseudo.pseudo_total_elemental_resistance',
+    'pseudo.pseudo_total_resistance',
+    'pseudo.pseudo_total_strength',
+    'pseudo.pseudo_total_dexterity',
+    'pseudo.pseudo_total_intelligence',
+    'pseudo.pseudo_count_fractured',
+    'pseudo.pseudo_total_attack_speed',
+    'pseudo.pseudo_adds_physical_damage',
+    'pseudo.pseudo_adds_fire_damage',
+    'pseudo.pseudo_adds_cold_damage',
+    'pseudo.pseudo_adds_lightning_damage',
+    'pseudo.pseudo_increased_movement_speed',
+  ];
+  // Show common pseudos first, then all others
+  const pseudoStats = statsDb.filter(s => s.type === 'pseudo');
+  const commonPseudos = COMMON_PSEUDO_PREFIXES.map(id => pseudoStats.find(s => s.id === id)).filter(Boolean);
+  const otherPseudos = pseudoStats.filter(s => !COMMON_PSEUDO_PREFIXES.includes(s.id));
+  if (commonPseudos.length) {
+    h += `<optgroup label="Common">`;
+    for (const s of commonPseudos) h += `<option value="${esc(s.id)}">${esc(s.text)}</option>`;
+    h += `</optgroup>`;
+  }
+  if (otherPseudos.length) {
+    h += `<optgroup label="All Pseudo Stats">`;
+    for (const s of otherPseudos) h += `<option value="${esc(s.id)}">${esc(s.text)}</option>`;
+    h += `</optgroup>`;
+  }
+  h += `</select></div>`;
+  h += `<div id="pseudo-stat-list"></div>`;
+  h += `</div>`;
+
+  h += sep();
+
   // Misc filters
   h += `<div class="mod-group misc-filters">`;
   h += `<div class="mod-group-label">Misc Filters</div>`;
@@ -534,6 +1000,23 @@ function renderParsedItem(item) {
   }
   if (item.synthesised) {
     h += toggleRow('filter-synthesised', 'Synthesised', true);
+  }
+  if (!item.identified) {
+    h += toggleRow('filter-unidentified', 'Unidentified', true);
+  }
+  // Veiled / Fractured / Enchanted / Crafted toggles
+  h += toggleRow('filter-veiled', 'Veiled', false);
+  if (item.fracturedMods.length) {
+    h += toggleRow('filter-fractured-item', 'Fractured Item', true);
+  } else {
+    h += toggleRow('filter-fractured-item', 'Fractured', false);
+  }
+  h += toggleRow('filter-enchanted', 'Enchanted', false);
+  h += toggleRow('filter-crafted', 'Crafted', false);
+
+  for (const inf of item.influences) {
+    const label = inf.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    h += toggleRow(`filter-inf-${inf}`, `${label} Item`, true);
   }
   h += `</div>`;
 
@@ -556,13 +1039,15 @@ function toggleRowInput(id, label, checked, inputHtml) {
   </div>`;
 }
 function modRow(id, modText, stat, type) {
-  const val  = extractModValue(modText);
+  const isOption = stat?.optionId !== undefined;
+  const val  = isOption ? null : extractModValue(modText);
   const ok   = !!stat;
   const cls  = `mod-type-${type}`;
   const indicator = ok
     ? `<span class="match-ok" title="${esc(stat.id)}">✓</span>`
     : `<span class="match-fail" title="No stat match — skipped">✗</span>`;
-  let h = `<div class="toggle-row ${cls}" data-stat-id="${ok ? esc(stat.id) : ''}">`;
+  const optAttr = isOption ? ` data-option-id="${esc(String(stat.optionId))}"` : '';
+  let h = `<div class="toggle-row ${cls}" data-stat-id="${ok ? esc(stat.id) : ''}"${optAttr}>`;
   h += `<input type="checkbox" id="mod-${id}" ${ok ? 'checked' : 'disabled'} data-mod="${esc(modText)}">`;
   h += `<label for="mod-${id}">${esc(modText)}</label>`;
   h += indicator;
@@ -604,9 +1089,15 @@ function esc(s) {
 
 // ── Build Query ───────────────────────────────────────────────────────────────
 function buildQuery(item) {
+  const groupType = $('stat-group-type')?.value || 'and';
+  const mainGroup = { type: groupType, filters: [] };
+  if (groupType === 'count') {
+    const min = parseInt($('count-min')?.value);
+    if (!isNaN(min)) mainGroup.value = { min };
+  }
   const q = {
     status: { option: onlineOnly.checked ? 'online' : 'any' },
-    stats:  [{ type: 'and', filters: [] }],
+    stats:  [mainGroup],
     filters: {},
   };
 
@@ -624,12 +1115,20 @@ function buildQuery(item) {
     q.type = item.baseType;
   }
 
+  // Category filter — search by item class instead of specific base type
+  if ($('toggle-category')?.checked) {
+    const cat = CATEGORY_MAP[item.itemClass];
+    if (cat) {
+      q.filters.type_filters = q.filters.type_filters || { disabled: false, filters: {} };
+      q.filters.type_filters.filters.category = { option: cat };
+      delete q.type; // Don't filter by specific base type
+    }
+  }
+
   if (!isUnique) {
     const rarityOption = isMagic ? 'magic' : (item.rarity === 'normal' ? 'normal' : 'nonunique');
-    q.filters.type_filters = {
-      disabled: false,
-      filters: { rarity: { option: rarityOption } },
-    };
+    q.filters.type_filters = q.filters.type_filters || { disabled: false, filters: {} };
+    q.filters.type_filters.filters.rarity = { option: rarityOption };
   }
 
   // Buyout only (priced listings)
@@ -644,6 +1143,42 @@ function buildQuery(item) {
   if ($('filter-synthesised')?.checked) {
     (q.filters.misc_filters = q.filters.misc_filters || { disabled: false, filters: {} })
       .filters.synthesised_item = { option: 'true' };
+  }
+
+  // Gem level & quality
+  if ($('toggle-gem-level')?.checked) {
+    const min = parseInt($('gem-level-min')?.value);
+    const max = parseInt($('gem-level-max')?.value);
+    const f = {};
+    if (!isNaN(min)) f.min = min;
+    if (!isNaN(max)) f.max = max;
+    if (Object.keys(f).length) {
+      (q.filters.misc_filters = q.filters.misc_filters || { disabled: false, filters: {} })
+        .filters.gem_level = f;
+    }
+  }
+  if ($('toggle-gem-quality')?.checked) {
+    const min = parseInt($('gem-quality-min')?.value);
+    const max = parseInt($('gem-quality-max')?.value);
+    const f = {};
+    if (!isNaN(min)) f.min = min;
+    if (!isNaN(max)) f.max = max;
+    if (Object.keys(f).length) {
+      (q.filters.misc_filters = q.filters.misc_filters || { disabled: false, filters: {} })
+        .filters.quality = f;
+    }
+  }
+
+  // Map tier
+  if ($('toggle-map-tier')?.checked) {
+    const min = parseInt($('map-tier-min')?.value);
+    const max = parseInt($('map-tier-max')?.value);
+    const f = {};
+    if (!isNaN(min)) f.min = min;
+    if (!isNaN(max)) f.max = max;
+    if (Object.keys(f).length) {
+      q.filters.map_filters = { disabled: false, filters: { map_tier: f } };
+    }
   }
 
   // Item level
@@ -703,6 +1238,55 @@ function buildQuery(item) {
       .filters.mirrored = { option: 'true' };
   }
 
+  // Unidentified
+  if ($('filter-unidentified')?.checked) {
+    (q.filters.misc_filters = q.filters.misc_filters || { disabled: false, filters: {} })
+      .filters.identified = { option: 'false' };
+  }
+
+  // Quality (non-gem)
+  if ($('toggle-quality')?.checked) {
+    const min = parseInt($('quality-min')?.value);
+    if (!isNaN(min)) {
+      (q.filters.misc_filters = q.filters.misc_filters || { disabled: false, filters: {} })
+        .filters.quality = { min };
+    }
+  }
+
+  // Requires Level
+  if ($('toggle-req-level')?.checked) {
+    const max = parseInt($('req-level-max')?.value);
+    if (!isNaN(max)) {
+      q.filters.req_filters = { disabled: false, filters: { lvl: { max } } };
+    }
+  }
+
+  // Veiled / Fractured / Enchanted / Crafted misc toggles
+  if ($('filter-veiled')?.checked) {
+    (q.filters.misc_filters = q.filters.misc_filters || { disabled: false, filters: {} })
+      .filters.veiled = { option: 'true' };
+  }
+  if ($('filter-fractured-item')?.checked) {
+    (q.filters.misc_filters = q.filters.misc_filters || { disabled: false, filters: {} })
+      .filters.fractured_item = { option: 'true' };
+  }
+  if ($('filter-enchanted')?.checked) {
+    (q.filters.misc_filters = q.filters.misc_filters || { disabled: false, filters: {} })
+      .filters.enchanted = { option: 'true' };
+  }
+  if ($('filter-crafted')?.checked) {
+    (q.filters.misc_filters = q.filters.misc_filters || { disabled: false, filters: {} })
+      .filters.crafted = { option: 'true' };
+  }
+
+  // Influences
+  for (const inf of ['shaper','elder','crusader','hunter','redeemer','warlord','searing_exarch','eater_of_worlds']) {
+    if ($(`filter-inf-${inf}`)?.checked) {
+      (q.filters.misc_filters = q.filters.misc_filters || { disabled: false, filters: {} })
+        .filters[`${inf}_item`] = { option: 'true' };
+    }
+  }
+
   // Mods helper
   function addMods(prefix) {
     const container = document.querySelectorAll(`[id^="mod-${prefix}-"]`);
@@ -711,13 +1295,18 @@ function buildQuery(item) {
       const row    = chk.closest('.toggle-row');
       const statId = row?.dataset.statId;
       if (!statId) continue;
-      const suffix = chk.id.replace(`mod-${prefix}-`, '');
-      const minEl  = $(`mod-min-${prefix}-${suffix}`);
-      const maxEl  = $(`mod-max-${prefix}-${suffix}`);
-      const filter = { id: statId, value: {}, disabled: false };
-      if (minEl && minEl.value !== '') filter.value.min = parseFloat(minEl.value);
-      if (maxEl && maxEl.value !== '') filter.value.max = parseFloat(maxEl.value);
-      q.stats[0].filters.push(filter);
+      const suffix   = chk.id.replace(`mod-${prefix}-`, '');
+      const filter   = { id: statId, value: {}, disabled: false };
+      const optionId = row.dataset.optionId;
+      if (optionId !== undefined && optionId !== '') {
+        filter.value.option = parseInt(optionId);
+      } else {
+        const minEl = $(`mod-min-${prefix}-${suffix}`);
+        const maxEl = $(`mod-max-${prefix}-${suffix}`);
+        if (minEl && minEl.value !== '') filter.value.min = parseFloat(minEl.value);
+        if (maxEl && maxEl.value !== '') filter.value.max = parseFloat(maxEl.value);
+      }
+      mainGroup.filters.push(filter);
     }
   }
 
@@ -726,6 +1315,24 @@ function buildQuery(item) {
   addMods('frac');
   addMods('exp');
   addMods('cra');
+
+  // Pseudo stats (separate AND group)
+  const pseudoGroup = { type: 'and', filters: [] };
+  const pseudoRows = document.querySelectorAll('#pseudo-stat-list .toggle-row');
+  for (const row of pseudoRows) {
+    const chk = row.querySelector('input[type="checkbox"]');
+    if (!chk?.checked) continue;
+    const statId = row.dataset.statId;
+    if (!statId) continue;
+    const id = chk.id.replace('mod-', '');
+    const filter = { id: statId, value: {}, disabled: false };
+    const minEl = $(`mod-min-${id}`);
+    const maxEl = $(`mod-max-${id}`);
+    if (minEl && minEl.value !== '') filter.value.min = parseFloat(minEl.value);
+    if (maxEl && maxEl.value !== '') filter.value.max = parseFloat(maxEl.value);
+    pseudoGroup.filters.push(filter);
+  }
+  if (pseudoGroup.filters.length) q.stats.push(pseudoGroup);
 
   return q;
 }
@@ -896,9 +1503,25 @@ function appendResults(results) {
     const tags = [];
     if (item) {
       if (item.ilvl)       tags.push(`<span class="tag">iLvl ${item.ilvl}</span>`);
+      if (item.properties) {
+        const lvlProp = item.properties.find(p => p.name === 'Level');
+        if (lvlProp?.values?.[0]) tags.push(`<span class="tag tag-gem-lvl">Lvl ${lvlProp.values[0][0]}</span>`);
+        const qualProp = item.properties.find(p => p.name === 'Quality');
+        if (qualProp?.values?.[0]) tags.push(`<span class="tag tag-gem-q">Q${qualProp.values[0][0]}</span>`);
+        const tierProp = item.properties.find(p => p.name === 'Map Tier');
+        if (tierProp?.values?.[0]) tags.push(`<span class="tag">T${tierProp.values[0][0]}</span>`);
+      }
       if (item.corrupted)  tags.push(`<span class="tag tag-corrupted">Corrupted</span>`);
       if (item.fractured)  tags.push(`<span class="tag tag-fractured">Fractured</span>`);
       if (item.mirrored)   tags.push(`<span class="tag tag-mirrored">Mirrored</span>`);
+      if (item.shaper)          tags.push(`<span class="tag tag-influence tag-shaper">Shaper</span>`);
+      if (item.elder)           tags.push(`<span class="tag tag-influence tag-elder">Elder</span>`);
+      if (item.crusader)        tags.push(`<span class="tag tag-influence tag-crusader">Crusader</span>`);
+      if (item.hunter)          tags.push(`<span class="tag tag-influence tag-hunter">Hunter</span>`);
+      if (item.redeemer)        tags.push(`<span class="tag tag-influence tag-redeemer">Redeemer</span>`);
+      if (item.warlord)         tags.push(`<span class="tag tag-influence tag-warlord">Warlord</span>`);
+      if (item.spikedByEaterOfWorlds) tags.push(`<span class="tag tag-influence tag-eater">Eater</span>`);
+      if (item.spikedBySearingExarch) tags.push(`<span class="tag tag-influence tag-exarch">Exarch</span>`);
       if (item.extended?.pdps) tags.push(`<span class="tag tag-pdps">pDPS ${Math.round(item.extended.pdps)}</span>`);
       if (item.extended?.edps && item.extended.edps > 0) tags.push(`<span class="tag tag-edps">eDPS ${Math.round(item.extended.edps)}</span>`);
       if (item.extended?.dps)  tags.push(`<span class="tag tag-dps">DPS ${Math.round(item.extended.dps)}</span>`);
@@ -923,14 +1546,36 @@ function appendResults(results) {
           : esc(item.typeLine || item.baseType || ''))
       : '';
 
+    // Item icon
+    const iconHtml = item?.icon
+      ? `<img class="card-icon" src="${esc(item.icon)}" alt="" loading="lazy">`
+      : '';
+
+    // Socket visualization from API response
+    let socketsHtml = '';
+    if (item?.sockets?.length) {
+      const SOCK_ATTR = { S: 'sock-r', D: 'sock-g', I: 'sock-b', G: 'sock-w', A: 'sock-a', DV: 'sock-w' };
+      let lastGroup = -1;
+      for (const s of item.sockets) {
+        if (lastGroup >= 0 && s.group === lastGroup) socketsHtml += `<span class="sock-link">-</span>`;
+        else if (lastGroup >= 0) socketsHtml += ' ';
+        const cls = SOCK_ATTR[s.attr] || '';
+        socketsHtml += `<span class="sock ${cls}">${s.attr || '?'}</span>`;
+        lastGroup = s.group;
+      }
+      socketsHtml = `<div class="card-sockets">${socketsHtml}</div>`;
+    }
+
     const card = document.createElement('div');
     card.className = 'result-card';
     card.innerHTML = `
       <div class="card-main">
+        ${iconHtml}
         <div class="card-price">${price ? formatCurrency(price.amount, price.currency) : '<span class="no-price">—</span>'}</div>
         <div>
           <div class="card-item rarity-${rarity}">${itemLabel}</div>
           ${tags.length ? `<div class="result-tags">${tags.join('')}</div>` : ''}
+          ${socketsHtml}
         </div>
         <div class="card-right">
           <div class="card-seller">

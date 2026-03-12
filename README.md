@@ -41,9 +41,18 @@ If the proxy is running, the app connects automatically. If not, you'll see a **
 
 3. **Parse the item** — click **Parse Item** (or it parses automatically on paste). The left panel shows the item's name, stats, and all its mods with checkboxes.
 
-4. **Adjust filters** — each mod has a checkbox to include/exclude it from the search. You can also set min/max values for numerical mods, item level, DPS, and link count.
+4. **Adjust filters** — each mod has a checkbox to include/exclude it from the search. You can also set min/max values for numerical mods, item level, DPS, link count, quality, gem level, map tier, and more. Additional filters include:
+   - **Pseudo stats** — add aggregate stats like Total Life, Total Resistances via the dropdown
+   - **Stat group mode** — switch between AND / COUNT / NOT operators for mod matching
+   - **Category filter** — search for any base of an item class (e.g. "any dagger")
+   - **Influence filters** — auto-detected for Shaper, Elder, Crusader, Hunter, Redeemer, Warlord, Searing Exarch, and Eater of Worlds items
+   - **Misc toggles** — veiled, fractured, enchanted, crafted, corrupted, mirrored, synthesised, unidentified
 
 5. **Search** — click **Search Here** to find listings. Results appear on the right panel sorted by price.
+
+### Bulk exchange
+
+Switch to **Bulk Exchange** mode using the toggle at the top of the left panel. Select the currency you want and the currency you have, then search. Results show exchange offers with ratios and stock.
 
 ### Reading results
 
@@ -60,6 +69,7 @@ If the proxy is running, the app connects automatically. If not, you'll see a **
 | **League** dropdown | Select which league to search in (auto-populated) |
 | **Online only** checkbox | Only show items from players currently online |
 | **Buyout only** checkbox | Only show listings with a fixed price (checked by default) |
+| **Item Search / Bulk Exchange** toggle | Switch between item search and currency exchange modes |
 | **Open in Trade Site** button | Opens the same search on the official pathofexile.com trade site |
 | **View on trade site** link | Appears after searching — direct link to your search results on the official site |
 | **Clear** button | Reset the item input and start fresh |

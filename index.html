@@ -37,12 +37,38 @@
   <div class="app-layout">
     <!-- ─── Left panel: item input + filters ─── -->
     <div class="panel-left">
-      <div class="paste-area">
-        <textarea id="item-input" rows="10" spellcheck="false"
-          placeholder="Ctrl+C an item in Path of Exile, then paste here (Ctrl+V)…"></textarea>
-        <div class="paste-actions">
-          <button id="parse-btn" class="btn-primary">Parse Item</button>
-          <button id="clear-btn" class="btn-ghost">Clear</button>
+      <div class="search-mode-toggle">
+        <button id="mode-search" class="mode-btn active">Item Search</button>
+        <button id="mode-exchange" class="mode-btn">Bulk Exchange</button>
+      </div>
+
+      <div id="item-search-panel">
+        <div class="paste-area">
+          <textarea id="item-input" rows="10" spellcheck="false"
+            placeholder="Ctrl+C an item in Path of Exile, then paste here (Ctrl+V)…"></textarea>
+          <div class="paste-actions">
+            <button id="parse-btn" class="btn-primary">Parse Item</button>
+            <button id="clear-btn" class="btn-ghost">Clear</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="exchange-panel" style="display:none;">
+        <div class="exchange-row">
+          <label for="exchange-want">I want</label>
+          <select id="exchange-want" class="exchange-select"><option value="">Loading…</option></select>
+        </div>
+        <div class="exchange-row">
+          <label for="exchange-have">I have</label>
+          <select id="exchange-have" class="exchange-select"><option value="">Loading…</option></select>
+        </div>
+        <div class="exchange-row">
+          <label for="exchange-min">Min stock</label>
+          <input type="number" id="exchange-min" class="num-input" value="" placeholder="—">
+        </div>
+        <div class="search-bar">
+          <button id="exchange-search-btn" class="btn-primary btn-search">Search Exchange</button>
+          <span id="exchange-status" class="search-status"></span>
         </div>
       </div>
 
