@@ -7,6 +7,7 @@ const DIRECT = {
 
 let game      = 'poe1';
 let useProxy  = false;
+const buyoutOnly = () => document.getElementById('buyout-only')?.checked;
 let statsDb   = [];          // [{id, text, type}]
 let parsedData = null;
 let lastSearchId  = null;
@@ -116,13 +117,19 @@ async function fetchLeagues() {
 
 // ── Item Parsing ──────────────────────────────────────────────────────────────
 // Tags appended to mod lines by the game client
-const MOD_TYPE_RE = /\s*\((implicit|crafted|fractured|enchant(?:ment)?|scourge)\)\s*$/i;
+const MOD_TYPE_RE = /\s*\((implicit|crafted|fractured|enchant(?:ment)?|scourge|mutated)\)\s*$/i;
+
+// Cluster jewel mods are always enchants — even when the game client omits the (enchant) tag
+const CLUSTER_ENCHANT_RE = /^(?:Adds \d+ Passive Skills?|Added Small Passive Skills?(?:\s+also)?\s+grant:|(?:\d+|\#) Added Passive Skill)/i;
 
 function getModType(line) {
+  if (CLUSTER_ENCHANT_RE.test(line)) return 'enchant';
   const m = line.match(MOD_TYPE_RE);
   if (!m) return 'explicit';
   const t = m[1].toLowerCase();
-  return t === 'enchantment' ? 'enchant' : t;
+  if (t === 'enchantment') return 'enchant';
+  if (t === 'mutated' || t === 'scourge') return 'explicit'; // no separate API type, treated as explicit
+  return t;
 }
 function stripModTag(line) { return line.replace(MOD_TYPE_RE, '').trim(); }
 
@@ -169,10 +176,20 @@ function parseItemText(text) {
   if (nameLines.length >= 2) { item.name = nameLines[0]; item.baseType = nameLines[1]; }
   else if (nameLines.length === 1) { item.baseType = nameLines[0]; }
 
-  // Strip "Synthesised " prefix — the API expects the plain base type + a separate filter
+  // Strip "Synthesised " prefix from base type — API expects plain base type + a separate filter
   if (item.baseType.startsWith('Synthesised ')) {
     item.synthesised = true;
     item.baseType = item.baseType.slice('Synthesised '.length);
+  }
+
+  // Strip known unique-name prefixes (Affliction "Foulborn", etc.)
+  // These are league mechanics that prepend to the canonical unique name
+  const UNIQUE_NAME_PREFIXES = ['Foulborn '];
+  for (const prefix of UNIQUE_NAME_PREFIXES) {
+    if (item.name.startsWith(prefix)) {
+      item.name = item.name.slice(prefix.length);
+      break;
+    }
   }
 
   // ── Sections ──
@@ -302,15 +319,49 @@ function normMod(text) {
     .toLowerCase();
 }
 
-function findStat(modText, preferType = 'explicit') {
+// Item classes where defence mods (Armour/Evasion/ES/Ward) are local
+const DEFENCE_CLASSES = new Set([
+  'Body Armours','Helmets','Gloves','Boots','Shields',
+]);
+// Item classes where weapon mods (damage/crit/speed) are local
+const WEAPON_CLASSES = new Set([
+  'Claws','Daggers','Rune Daggers','Wands',
+  'One Hand Swords','Thrusting One Hand Swords','One Hand Axes','One Hand Maces',
+  'Bows','Staves','Warstaves','Two Hand Swords','Two Hand Axes','Two Hand Maces',
+  'Sceptres','Flails','Spears','Crossbows',
+]);
+// Patterns that become local on defence items (matches APAT's mn object)
+const LOCAL_DEFENCE_RE = /increased (Armour|Evasion|Energy Shield|Ward)|\bto Armour$|\bto Evasion Rating$|\bto maximum Energy Shield$|\bto Ward$/i;
+// Patterns that become local on weapons (matches APAT's pH set)
+const LOCAL_WEAPON_RE = /increased Physical Damage|Adds \d.*(?:Physical|Lightning|Cold|Fire|Chaos) Damage|increased (Critical Strike Chance|Attack Speed)/i;
+
+function isLocalMod(modText, itemClass) {
+  if (DEFENCE_CLASSES.has(itemClass) && LOCAL_DEFENCE_RE.test(modText)) return true;
+  if (WEAPON_CLASSES.has(itemClass) && LOCAL_WEAPON_RE.test(modText)) return true;
+  return false;
+}
+
+function findStat(modText, preferType = 'explicit', itemClass = '') {
   if (!statsDb.length) return null;
-  const norm    = normMod(modText);
-  const normPlus = '+' + norm;
+  const norm       = normMod(modText);
+  const normPlus   = '+' + norm;
   const normNoSign = norm.replace(/^[+\-]#?\s*/, '').trim();
+  const normLocal  = norm + ' (local)';
+  const local      = isLocalMod(modText, itemClass);
 
   // Search order: preferred type first, then other useful types
   const order = [preferType, 'explicit', 'fractured', 'crafted', 'implicit', 'enchant']
     .filter((v, i, a) => a.indexOf(v) === i);
+
+  // For local mods: try the "(Local)" variant first, then fall back to plain
+  if (local) {
+    for (const type of order) {
+      for (const s of statsDb) {
+        if (s.type !== type) continue;
+        if (s.text.toLowerCase() === normLocal) return s;
+      }
+    }
+  }
 
   for (const type of order) {
     for (const s of statsDb) {
@@ -320,10 +371,13 @@ function findStat(modText, preferType = 'explicit') {
     }
   }
 
-  // Fuzzy fallback — only within preferred + explicit
+  // Fuzzy fallback — only within preferred + explicit, skip (Local) entries for non-local mods
   const words = normNoSign.replace(/[#%]/g, '').trim().split(/\s+/).filter(w => w.length > 2);
   if (!words.length) return null;
-  const pool = statsDb.filter(s => s.type === preferType || s.type === 'explicit');
+  const pool = statsDb.filter(s =>
+    (s.type === preferType || s.type === 'explicit') &&
+    (local || !s.text.toLowerCase().includes('(local)'))
+  );
   let best = null, bestRatio = 0;
   for (const s of pool) {
     const st = s.text.toLowerCase();
@@ -404,14 +458,12 @@ function renderParsedItem(item) {
     h += sep();
   }
 
-  // Defences
+  // Defences — use armour_filters (final computed value) like APAT does
   if (item.armour || item.evasion || item.energyShield || item.ward) {
-    h += `<div class="stat-row">`;
-    if (item.armour)       h += `<span class="stat-badge">AR <strong>${item.armour}</strong></span>`;
-    if (item.evasion)      h += `<span class="stat-badge ev">EV <strong>${item.evasion}</strong></span>`;
-    if (item.energyShield) h += `<span class="stat-badge es">ES <strong>${item.energyShield}</strong></span>`;
-    if (item.ward)         h += `<span class="stat-badge ward">Ward <strong>${item.ward}</strong></span>`;
-    h += `</div>`;
+    if (item.armour)       h += toggleRowInput('toggle-ar',   `Armour: ${item.armour}`,        false, `<span class="filter-label">min</span><input type="number" id="ar-min"   value="${Math.floor(item.armour       * 0.9)}" class="num-input">`);
+    if (item.evasion)      h += toggleRowInput('toggle-ev',   `Evasion: ${item.evasion}`,       false, `<span class="filter-label">min</span><input type="number" id="ev-min"   value="${Math.floor(item.evasion      * 0.9)}" class="num-input">`);
+    if (item.energyShield) h += toggleRowInput('toggle-es',   `Energy Shield: ${item.energyShield}`, false, `<span class="filter-label">min</span><input type="number" id="es-min"   value="${Math.floor(item.energyShield * 0.9)}" class="num-input">`);
+    if (item.ward)         h += toggleRowInput('toggle-ward', `Ward: ${item.ward}`,             false, `<span class="filter-label">min</span><input type="number" id="ward-min" value="${Math.floor(item.ward         * 0.9)}" class="num-input">`);
     h += sep();
   }
 
@@ -429,7 +481,7 @@ function renderParsedItem(item) {
   if (item.enchantMods.length) {
     h += `<div class="mod-group">`;
     h += `<div class="mod-group-label enchant-label">Enchant</div>`;
-    item.enchantMods.forEach((m, i) => h += modRow(`enc-${i}`, m, findStat(m, 'enchant'), 'enchant'));
+    item.enchantMods.forEach((m, i) => h += modRow(`enc-${i}`, m, findStat(m, 'enchant', item.itemClass), 'enchant'));
     h += `</div>${sep()}`;
   }
 
@@ -437,7 +489,7 @@ function renderParsedItem(item) {
   if (item.implicitMods.length) {
     h += `<div class="mod-group">`;
     h += `<div class="mod-group-label implicit-label">Implicit</div>`;
-    item.implicitMods.forEach((m, i) => h += modRow(`imp-${i}`, m, findStat(m, 'implicit'), 'implicit'));
+    item.implicitMods.forEach((m, i) => h += modRow(`imp-${i}`, m, findStat(m, 'implicit', item.itemClass), 'implicit'));
     h += `</div>${sep()}`;
   }
 
@@ -445,7 +497,7 @@ function renderParsedItem(item) {
   if (item.fracturedMods.length) {
     h += `<div class="mod-group">`;
     h += `<div class="mod-group-label fractured-label">Fractured</div>`;
-    item.fracturedMods.forEach((m, i) => h += modRow(`frac-${i}`, m, findStat(m, 'fractured'), 'fractured'));
+    item.fracturedMods.forEach((m, i) => h += modRow(`frac-${i}`, m, findStat(m, 'fractured', item.itemClass), 'fractured'));
     h += `</div>${sep()}`;
   }
 
@@ -453,7 +505,7 @@ function renderParsedItem(item) {
   if (item.explicitMods.length) {
     h += `<div class="mod-group">`;
     h += `<div class="mod-group-label">Explicit Mods</div>`;
-    item.explicitMods.forEach((m, i) => h += modRow(`exp-${i}`, m, findStat(m, 'explicit'), 'explicit'));
+    item.explicitMods.forEach((m, i) => h += modRow(`exp-${i}`, m, findStat(m, 'explicit', item.itemClass), 'explicit'));
     h += `</div>`;
     if (item.craftedMods.length) h += sep();
   }
@@ -462,7 +514,7 @@ function renderParsedItem(item) {
   if (item.craftedMods.length) {
     h += `<div class="mod-group">`;
     h += `<div class="mod-group-label crafted-label">Crafted</div>`;
-    item.craftedMods.forEach((m, i) => h += modRow(`cra-${i}`, m, findStat(m, 'crafted'), 'crafted'));
+    item.craftedMods.forEach((m, i) => h += modRow(`cra-${i}`, m, findStat(m, 'crafted', item.itemClass), 'crafted'));
     h += `</div>`;
   }
 
@@ -515,11 +567,10 @@ function modRow(id, modText, stat, type) {
   h += `<label for="mod-${id}">${esc(modText)}</label>`;
   h += indicator;
   if (val && ok) {
-    // For "Adds X to Y" mods the API filters on the average (X+Y)/2, not the raw bounds
-    const prefillMin = val.isRange ? Math.round((val.min + val.max) / 2 * 10) / 10 : val.min;
+    const prefillMax = val.isRange ? val.max : '';
     h += `<div class="row-inputs">`;
-    h += `<span class="filter-label">min</span><input type="number" id="mod-min-${id}" value="${prefillMin}" step="any" class="num-input" placeholder="—">`;
-    h += `<span class="filter-label">max</span><input type="number" id="mod-max-${id}" value="" step="any" class="num-input" placeholder="∞">`;
+    h += `<span class="filter-label">min</span><input type="number" id="mod-min-${id}" value="${val.min}" step="1" class="num-input" placeholder="—">`;
+    h += `<span class="filter-label">max</span><input type="number" id="mod-max-${id}" value="${prefillMax}" step="1" class="num-input" placeholder="∞">`;
     h += `</div>`;
   }
   h += `</div>`;
@@ -581,6 +632,14 @@ function buildQuery(item) {
     };
   }
 
+  // Buyout only (priced listings)
+  if (buyoutOnly()) {
+    q.filters.trade_filters = {
+      disabled: false,
+      filters: { sale_type: { option: 'priced' } },
+    };
+  }
+
   // Synthesised
   if ($('filter-synthesised')?.checked) {
     (q.filters.misc_filters = q.filters.misc_filters || { disabled: false, filters: {} })
@@ -608,6 +667,22 @@ function buildQuery(item) {
     const min = parseFloat($('dps-min')?.value);
     if (!isNaN(min)) {
       q.filters.weapon_filters = { disabled: false, filters: { dps: { min } } };
+    }
+  }
+
+  // Armour / defence filters (final computed value, not mod %)
+  for (const [toggleId, inputId, field] of [
+    ['toggle-ar',   'ar-min',   'ar'],
+    ['toggle-ev',   'ev-min',   'ev'],
+    ['toggle-es',   'es-min',   'es'],
+    ['toggle-ward', 'ward-min', 'ward'],
+  ]) {
+    if ($(toggleId)?.checked) {
+      const min = parseInt($(inputId)?.value);
+      if (!isNaN(min)) {
+        if (!q.filters.armour_filters) q.filters.armour_filters = { disabled: false, filters: {} };
+        q.filters.armour_filters.filters[field] = { min };
+      }
     }
   }
 

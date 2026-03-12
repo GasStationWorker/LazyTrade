@@ -1,0 +1,438 @@
+===== BODY ARMOUR (Unique, local armour mod) =====
+Item Class: Body Armours
+Rarity: Unique
+Lioneye's Vision
+Crusader Plate
+--------
+Armour: 2161 (augmented)
+--------
+Requirements:
+Level: 59
+Str: 160
+Dex: 160 (augmented) (unmet)
+--------
+Sockets: R-R-R-R-R-R
+--------
+Item Level: 85
+--------
+Socketed Gems are Supported by Level 15 Pierce
++160 Dexterity Requirement
+222% increased Armour
++70 to maximum Life
+0.4% of Physical Attack Damage Leeched as Mana
+Enemy Projectiles Pierce you
+
+===== WEAPON (Unique, local phys damage) =====
+Item Class: Two Hand Axes
+Rarity: Unique
+Disfavour
+Vaal Axe
+--------
+Two Handed Axe
+Physical Damage: 228-380 (augmented)
+Critical Strike Chance: 5.00%
+Attacks per Second: 1.30
+Weapon Range: 1.3 metres
+--------
+Requirements:
+Level: 64
+Str: 158
+Dex: 76
+--------
+Sockets: R-R-R-R-R-R
+--------
+Item Level: 82
+--------
+40% increased Physical Damage
+Adds 60 to 100 Physical Damage
++16% to Quality
+6% increased Attack Speed
++2 to Melee range
+
+===== RARE BODY ARMOUR (Evasion + ES hybrid, crafted) =====
+Item Class: Body Armours
+Rarity: Rare
+Gloom Carapace
+Sadist Garb
+--------
+Evasion Rating: 980 (augmented)
+Energy Shield: 189 (augmented)
+--------
+Requirements:
+Level: 68
+Dex: 103
+Int: 109
+--------
+Sockets: G-G-B-B
+--------
+Item Level: 82
+--------
++79 to maximum Life
++41 to maximum Energy Shield
++35% to Cold Resistance
++28% to Lightning Resistance
+78% increased Evasion Rating (crafted)
++15% to all Elemental Resistances (crafted)
+
+===== HELMET (Rare, ES, implicit + explicit) =====
+Item Class: Helmets
+Rarity: Rare
+Plague Visage
+Hubris Circlet
+--------
+Energy Shield: 210 (augmented)
+--------
+Requirements:
+Level: 69
+Int: 154
+--------
+Sockets: B-B-B-B
+--------
+Item Level: 80
+--------
++42 to maximum Energy Shield (implicit)
+--------
++80 to maximum Life
++45 to maximum Energy Shield
++40% to Cold Resistance
++35% to Lightning Resistance
+30% increased Energy Shield
+
+===== BELT (Unique, no local mods) =====
+Item Class: Belts
+Rarity: Unique
+Mageblood
+Heavy Belt
+--------
+Requirements:
+Level: 48
+--------
+Item Level: 85
+--------
+38% increased Critical Strike Chance during any Flask Effect (implicit)
++27% to Critical Strike Multiplier during any Flask Effect (implicit)
+--------
++41 to Dexterity
++17% to Fire Resistance
++16% to Cold Resistance
+Magic Utility Flasks cannot be Used
+Leftmost 4 Magic Utility Flasks constantly apply their Flask Effects to you
+Magic Utility Flask Effects cannot be removed
+--------
+Corrupted
+
+===== JEWEL (Unique) =====
+Item Class: Jewels
+Rarity: Unique
+Watcher's Eye
+Prismatic Jewel
+--------
+Item Level: 84
+--------
++5% to all Elemental Resistances (implicit)
+--------
+4% increased maximum Energy Shield
+4% increased maximum Life
+4% increased maximum Mana
+25% increased Fire Damage while affected by Anger
+Gain (15-20) Life per Enemy Hit while affected by Vitality
+Lose (40-60) Mana per second while affected by Clarity
+
+===== RARE JEWEL =====
+Item Class: Jewels
+Rarity: Rare
+Brute Stone
+Viridian Jewel
+--------
+Item Level: 77
+--------
++12% to Fire and Cold Resistances
++35 to maximum Life
+6% increased Attack Speed with Bows
+8% increased Projectile Damage
+
+===== CLUSTER JEWEL (Large) =====
+Item Class: Jewels
+Rarity: Rare
+Scourge Cluster
+Large Cluster Jewel
+--------
+Item Level: 84
+--------
+Adds 12 Passive Skills (enchant)
+1 Added Passive Skill is a Jewel Socket (enchant)
+Added Small Passive Skills grant: 12% increased Elemental Damage with Attack Skills (enchant)
+--------
+Damage Penetrates 10% of Enemy Elemental Resistances
+Adds 8 to 13 Cold Damage to Attacks
+--------
+Place into an allocated Large Jewel Socket on the Passive Skill Tree. Right click to remove from the Socket.
+
+===== CLUSTER JEWEL (Medium) =====
+Item Class: Jewels
+Rarity: Rare
+Gale Cluster
+Medium Cluster Jewel
+--------
+Item Level: 80
+--------
+Adds 4 Passive Skills (enchant)
+Added Small Passive Skills grant: 10% increased Effect of Non-Curse Auras from your Skills (enchant)
+--------
+Passives in radius of Storm Drinker are Conquered by the Eradicator
+Passives in radius of Flow Untethered are Conquered by the Eradicator
+
+===== ABYSS JEWEL =====
+Item Class: Abyss Jewels
+Rarity: Rare
+Doom Spark
+Hypnotic Eye Jewel
+--------
+Item Level: 80
+--------
++25 to maximum Life
+Adds 5 to 8 Cold Damage to Spells
++16% to Cold Resistance
+Regenerate 3 Mana per second
+
+===== RING (Rare, global mods) =====
+Item Class: Rings
+Rarity: Rare
+Doom Circle
+Amethyst Ring
+--------
+Requirements:
+Level: 48
+--------
+Item Level: 79
+--------
++25% to Chaos Resistance (implicit)
+--------
++50 to maximum Life
++40 to maximum Mana
++40% to Fire Resistance
++35% to Cold Resistance
+Adds 12 to 23 Fire Damage to Attacks
+
+===== AMULET (Rare, crafted) =====
+Item Class: Amulets
+Rarity: Rare
+Woe Pendant
+Jade Amulet
+--------
+Requirements:
+--------
+Item Level: 82
+--------
++28 to Dexterity (implicit)
+--------
++72 to maximum Life
++41 to Dexterity
+Regenerate 5.3 Life per second
++42% to Fire Resistance
++38% to Cold Resistance
++5% to Chaos Resistance (crafted)
+
+===== GLOVES (Rare, local evasion) =====
+Item Class: Gloves
+Rarity: Rare
+Corruption Touch
+Gripped Gloves
+--------
+Evasion Rating: 320 (augmented)
+--------
+Requirements:
+Level: 70
+Dex: 95
+--------
+Sockets: G-G-G-G
+--------
+Item Level: 80
+--------
++48 to maximum Life
++43% to Fire Resistance
++38% to Cold Resistance
+Adds 5 to 9 Physical Damage to Attacks
+63% increased Evasion Rating
+
+===== BOOTS (Rare, local armour+evasion) =====
+Item Class: Boots
+Rarity: Rare
+Havoc Tread
+Two-Toned Boots (Armour/Evasion)
+--------
+Armour: 95 (augmented)
+Evasion Rating: 95 (augmented)
+--------
+Requirements:
+Level: 60
+Str: 46
+Dex: 46
+--------
+Sockets: R-G-R-G
+--------
+Item Level: 76
+--------
++30 to maximum Life (implicit)
+--------
++65 to maximum Life
+30% increased Movement Speed
++38% to Fire Resistance
++30% to Cold Resistance
+65% increased Armour and Evasion Rating
+
+===== LIFE FLASK (Unique) =====
+Item Class: Life Flasks
+Rarity: Unique
+Divination Distillate
+Grand Life Flask
+--------
+Quality: +20% (augmented)
+Recovers 1050 (augmented) Life over 7.00 Seconds
+Consumes 30 of 60 Charges on use
+--------
+Item Level: 50
+--------
+20% increased Duration
+Gain 7% of Maximum Life as Extra Maximum Energy Shield during Effect
++40% to all Elemental Resistances during Effect
+20% increased Rarity of Items found during Effect
+
+===== UTILITY FLASK (Magic) =====
+Item Class: Utility Flasks
+Rarity: Magic
+Experimenter's Silver Flask of Acceleration
+--------
+Lasts 5.50 Seconds
+Consumes 40 of 80 Charges on use
+--------
+Item Level: 52
+--------
+Onslaught during Effect
+50% increased Duration
+30% increased Movement Speed during Effect
+
+===== SKILL GEM =====
+Item Class: Active Skill Gems
+Rarity: Gem
+Fireball
+--------
+Projectile, Spell, AoE, Fire, Duration
+Level: 21 (Max)
+Quality: +20% (augmented)
+Mana Cost: 22
+Cast Time: 0.75 sec
+Critical Strike Chance: 6.00%
+Effectiveness of Added Damage: 240%
+--------
+Requirements:
+Level: 70
+Int: 155
+--------
+Experience: 1/1
+--------
+Fires a burning projectile that deals Fire Damage. If the projectile hits a target, or reaches the targeted location, it explodes, dealing damage to nearby enemies. The burning debuff deals more damage the longer the burning lasts.
+--------
+50% chance to Ignite enemies
+Deals 579.4 to 868.6 Fire Damage
+Base duration of Ignite is 4 seconds
+20% more Damage for each second Ignite has been active
+
+===== SUPPORT GEM =====
+Item Class: Support Skill Gems
+Rarity: Gem
+Empower Support
+--------
+Support
+Level: 4 (Max)
+Mana Multiplier: 125%
+--------
+Requirements:
+Level: 72
+--------
+Experience: 1/1
+--------
+Supports any skill gem. Once this gem reaches level 2 or above, will raise the level of supported gems. Cannot support skills that don't come from gems.
+--------
++3 to Level of Supported Active Skill Gems
+
+===== MAP (Rare) =====
+Item Class: Maps
+Rarity: Rare
+Putrid Maze
+Dunes Map
+--------
+Map Tier: 14
+Item Quantity: +84% (augmented)
+Item Rarity: +39% (augmented)
+Monster Pack Size: +29% (augmented)
+--------
+Item Level: 80
+--------
+Monsters deal 2 Bursts of Damage (implicit)
+--------
+Area is inhabited by Goatmen
+Monsters cannot be Slowed below base speed
+Slaying Enemies close together has a 13% chance to attract monsters
+Players are Cursed with Temporal Chains
+Monsters' Action Speed cannot be modified to below base value
+
+===== DIVINATION CARD =====
+Item Class: Divination Cards
+Rarity: Normal
+The Doctor
+--------
+Stack Size: 1/8
+--------
+A Set of Eight
+--------
+A Headhunter
+--------
+Seek the advice of doctors, for they know the cost of a human life.
+
+===== CURRENCY (for reference — not parseable as item) =====
+Item Class: Stackable Currency
+Rarity: Normal
+Divine Orb
+--------
+Stack Size: 1/20
+--------
+Randomises the numeric values of the random modifiers on an item.
+Right click this item then left click a magic, rare or unique item to apply it.
+
+===== WATCHSTONE / SCARAB =====
+Item Class: Map Fragments
+Rarity: Normal
+Ambush Scarab of Containment
+--------
+Stack Size: 1/20
+--------
+Area contains 3 additional Strongboxes
+Strongboxes in Area are guarded
+--------
+Can be used in a personal Map Device.
+
+===== SHIELD (Rare, local armour + block) =====
+Item Class: Shields
+Rarity: Rare
+Honour Ward
+Titanium Spirit Shield
+--------
+Chance to Block: 25%
+Energy Shield: 185 (augmented)
+--------
+Requirements:
+Level: 68
+Int: 159
+--------
+Sockets: B-B-B
+--------
+Item Level: 83
+--------
++12% to all Elemental Resistances (implicit)
+--------
++82 to maximum Life
++55 to maximum Energy Shield
++40% to Fire Resistance
++33% to Lightning Resistance
+40% increased Energy Shield

@@ -59,6 +59,7 @@ If the proxy is running, the app connects automatically. If not, you'll see a **
 | **PoE 1 / PoE 2** buttons | Switch between game versions (different APIs and leagues) |
 | **League** dropdown | Select which league to search in (auto-populated) |
 | **Online only** checkbox | Only show items from players currently online |
+| **Buyout only** checkbox | Only show listings with a fixed price (checked by default) |
 | **Open in Trade Site** button | Opens the same search on the official pathofexile.com trade site |
 | **View on trade site** link | Appears after searching — direct link to your search results on the official site |
 | **Clear** button | Reset the item input and start fresh |
@@ -76,9 +77,10 @@ If the proxy is running, the app connects automatically. If not, you'll see a **
 ## Project Files
 
 ```
-index.html       — the app (open this in your browser)
-style.css        — styling
-app.js           — all the logic (parsing, searching, rendering)
-proxy.js         — CORS proxy server (run with Node.js)
-test-parse.js    — test script for the item parser
+index.html          — the app (open this in your browser)
+style.css           — styling
+app.js              — all the logic (parsing, searching, rendering)
+proxy.js            — CORS proxy server (run with Node.js)
+test-parse.js       — test script for the item parser
+example-items.txt   — sample item text for each item class (body armour, weapon, jewel, etc.)
 ```
