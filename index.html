@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PoE Trade Search</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>PoE Trade</h1>
+    <div class="header-controls">
+      <div class="game-toggle">
+        <button id="poe1-btn" class="game-btn active" title="Path of Exile 1">PoE 1</button>
+        <button id="poe2-btn" class="game-btn" title="Path of Exile 2">PoE 2</button>
+      </div>
+      <div class="header-field">
+        <label for="league">League</label>
+        <select id="league"><option value="Standard">Standard</option></select>
+      </div>
+      <label class="check-label" title="Only show listings from online players">
+        <input type="checkbox" id="online-only">
+        <span>Online only</span>
+      </label>
+    </div>
+  </header>
+
+  <div id="cors-warning" class="cors-warning" style="display:none;">
+    <span><strong>CORS Blocked</strong> — Start the proxy: <code>node proxy.js</code>, then reload.</span>
+    <button id="dismiss-cors" class="btn-icon">✕</button>
+  </div>
+
+  <div class="app-layout">
+    <!-- ─── Left panel: item input + filters ─── -->
+    <div class="panel-left">
+      <div class="paste-area">
+        <textarea id="item-input" rows="10" spellcheck="false"
+          placeholder="Ctrl+C an item in Path of Exile, then paste here (Ctrl+V)…"></textarea>
+        <div class="paste-actions">
+          <button id="parse-btn" class="btn-primary">Parse Item</button>
+          <button id="clear-btn" class="btn-ghost">Clear</button>
+        </div>
+      </div>
+
+      <div id="parsed-section" style="display:none;">
+        <div id="parsed-item" class="parsed-item-panel"></div>
+        <div class="search-bar">
+          <button id="search-btn" class="btn-primary btn-search">Search Here</button>
+          <button id="open-trade-btn" class="btn-ghost btn-open-trade" title="Build query and open on the official trade site">Open in Trade Site ↗</button>
+          <span id="search-status" class="search-status"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── Right panel: results ─── -->
+    <div class="panel-right">
+      <div id="results-placeholder" class="placeholder">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
+          <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+        </svg>
+        <p>Paste an item to search the trade site</p>
+      </div>
+
+      <div id="results-section" style="display:none;">
+        <div class="results-toolbar">
+          <span id="result-count" class="result-count"></span>
+          <a id="trade-link" class="trade-link" target="_blank" rel="noopener" style="display:none;">
+            View on trade site ↗
+          </a>
+        </div>
+        <div id="results-list" class="results-list"></div>
+        <div class="results-footer">
+          <button id="load-more-btn" class="btn-ghost" style="display:none;">Load more</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
