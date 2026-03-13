@@ -1407,33 +1407,54 @@ async function stashRateLimitedFetch(path, opts, progressEl, _retries = 0) {
     return stashRateLimitedFetch(path, opts, progressEl, _retries + 1);
   }
 
-  // Parse rate limit state to compute delay for next request.
-  // Look for x-rate-limit-ip and x-rate-limit-ip-state (or account variants).
-  const rules = res.headers.get('x-rate-limit-ip') || res.headers.get('x-rate-limit-account');
-  const state = res.headers.get('x-rate-limit-ip-state') || res.headers.get('x-rate-limit-account-state');
+  // Parse rate limit state per the PoE API spec:
+  // X-Rate-Limit-Rules: comma-delimited rule names (e.g. "ip", "account", "client")
+  // X-Rate-Limit-{rule}: maxHits:period:restrictTime,...
+  // X-Rate-Limit-{rule}-State: curHits:period:activeRestrict,...
+  const ruleNames = res.headers.get('x-rate-limit-rules');
+  let maxDelay = 1500; // minimum 1.5s between requests (safe for bulk)
+  let foundHeaders = false;
 
-  if (rules && state) {
-    // rules: "6:5:60,12:30:60"  state: "4:5:0,8:30:0"
-    const ruleParts = rules.split(',');
-    const stateParts = state.split(',');
-    let maxDelay = 1500; // minimum 1.5s between requests (safe for bulk)
+  if (ruleNames) {
+    for (const ruleName of ruleNames.split(',')) {
+      const limits = res.headers.get(`x-rate-limit-${ruleName.trim()}`);
+      const state  = res.headers.get(`x-rate-limit-${ruleName.trim()}-state`);
+      if (!limits || !state) continue;
+      foundHeaders = true;
 
-    for (let r = 0; r < ruleParts.length; r++) {
-      const [maxHits, period] = ruleParts[r].split(':').map(Number);
-      const [curHits]         = (stateParts[r] || '').split(':').map(Number);
-      if (maxHits && period && curHits !== undefined) {
-        const remaining = maxHits - curHits - 1; // -1 for safety margin
-        if (remaining <= 1) {
-          // Near the limit for this window — wait proportionally
-          maxDelay = Math.max(maxDelay, (period / maxHits) * 1000 * 1.2);
+      const limitParts = limits.split(',');
+      const stateParts = state.split(',');
+
+      for (let r = 0; r < limitParts.length; r++) {
+        const [maxHits, period] = limitParts[r].split(':').map(Number);
+        const [curHits, , activeRestrict]     = (stateParts[r] || '').split(':').map(Number);
+        if (!maxHits || !period) continue;
+
+        // If currently restricted, wait the full restriction time
+        if (activeRestrict > 0) {
+          maxDelay = Math.max(maxDelay, activeRestrict * 1000);
+          continue;
+        }
+
+        const remaining = maxHits - curHits;
+        if (remaining <= 2) {
+          // Near the limit — wait enough to avoid hitting it and getting restrictTime penalty
+          maxDelay = Math.max(maxDelay, (period / maxHits) * 1000 * 2);
+        } else {
+          // Pace evenly across the window, leave headroom
+          maxDelay = Math.max(maxDelay, (period / (remaining - 1)) * 1000);
         }
       }
     }
-    _stashNextRequestAt = Date.now() + maxDelay;
-  } else {
-    // No rate limit headers visible — use conservative fixed delay
-    _stashNextRequestAt = Date.now() + 2000;
   }
+
+  if (!foundHeaders) {
+    // No rate limit headers visible — use conservative fixed delay
+    maxDelay = 2000;
+  }
+
+  console.log('Rate limit pacing:', maxDelay + 'ms', ruleNames || '(no headers)');
+  _stashNextRequestAt = Date.now() + maxDelay;
 
   return res;
 }

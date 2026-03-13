@@ -120,3 +120,7 @@ proxy.js            — CORS proxy server (run with Node.js)
 test-parse.js       — test script for the item parser
 example-items.txt   — sample item text for each item class (body armour, weapon, jewel, etc.)
 ```
+
+## Disclaimer
+
+This product isn't affiliated with or endorsed by Grinding Gear Games in any way.

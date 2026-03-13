@@ -12,7 +12,6 @@ const server = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, User-Agent, X-POESESSID');
-  res.setHeader('Access-Control-Expose-Headers', 'Retry-After, X-Rate-Limit-Policy, X-Rate-Limit-Rules, X-Rate-Limit-Ip, X-Rate-Limit-Ip-State, X-Rate-Limit-Account, X-Rate-Limit-Account-State');
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
@@ -43,15 +42,21 @@ const server = http.createServer((req, res) => {
   };
 
   const proxyReq = https.request(options, (proxyRes) => {
-    // Forward rate limit headers
+    // Forward rate limit headers + collect names for CORS expose
+    const exposeList = ['Retry-After'];
     const fwdHeaders = ['x-rate-limit-policy', 'x-rate-limit-rules', 'retry-after', 'content-type'];
     for (const h of fwdHeaders) {
       if (proxyRes.headers[h]) res.setHeader(h, proxyRes.headers[h]);
     }
-    // Forward any x-rate-limit-* headers
+    // Forward any x-rate-limit-* headers (dynamic rule names like ip, account, client)
     for (const [k, v] of Object.entries(proxyRes.headers)) {
-      if (k.startsWith('x-rate-limit')) res.setHeader(k, v);
+      if (k.startsWith('x-rate-limit')) {
+        res.setHeader(k, v);
+        exposeList.push(k);
+      }
     }
+    // Expose all forwarded rate limit headers to the browser (CORS)
+    res.setHeader('Access-Control-Expose-Headers', exposeList.join(', '));
 
     res.writeHead(proxyRes.statusCode);
     proxyRes.pipe(res);

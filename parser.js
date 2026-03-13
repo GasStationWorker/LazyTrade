@@ -369,9 +369,12 @@ function parseItemText(text) {
       if (l === 'Mirrored')    { item.mirrored  = true; continue; }
       if (STANDALONE.has(l) || l.startsWith('Note:')) continue;
 
-      const type  = getModType(l);
+      let type  = getModType(l);
       const clean = stripModTag(l);
       if (!clean) continue;
+
+      // "Supported by Level # X" is a built-in support — always an enchant
+      if (/^Supported by Level \d+/.test(clean)) type = 'enchant';
 
       switch (type) {
         case 'crafted':   item.craftedMods.push(clean);  break;
