@@ -38,7 +38,7 @@ const tradeLink      = $('trade-link');
 const placeholder    = $('results-placeholder');
 
 // ── Init ──────────────────────────────────────────────────────────────────────
-detectProxy().then(() => { loadStatsDb(); fetchLeagues(); });
+detectProxy().then(() => { loadStatsDb(); fetchLeagues(); loadStaticData(); });
 
 itemInput.addEventListener('paste', () => setTimeout(handleParse, 50));
 parseBtn.addEventListener('click', handleParse);
@@ -54,6 +54,7 @@ $('mode-exchange').addEventListener('click', () => switchMode('exchange'));
 $('exchange-search-btn').addEventListener('click', handleExchangeSearch);
 
 let staticData = []; // [{id, label, entries: [{id, text, image}]}]
+const currencyIcons = {}; // populated from staticData: { currencyId: imageUrl }
 
 function switchMode(mode) {
   $('mode-search').classList.toggle('active', mode === 'search');
@@ -124,7 +125,10 @@ async function fetchLeagues() {
     const data = await res.json();
     if (data.result) {
       leagueSelect.innerHTML = '';
+      const seen = new Set();
       for (const l of data.result) {
+        if (seen.has(l.id)) continue;
+        seen.add(l.id);
         const o = document.createElement('option');
         o.value = l.id; o.textContent = l.id;
         leagueSelect.appendChild(o);
@@ -140,6 +144,16 @@ async function loadStaticData() {
     const data = await res.json();
     if (data.result) {
       staticData = data.result;
+      for (const group of staticData) {
+        for (const entry of (group.entries || [])) {
+          if (entry.image) {
+            // API returns relative paths — make them absolute
+            currencyIcons[entry.id] = entry.image.startsWith('http')
+              ? entry.image
+              : 'https://web.poecdn.com' + entry.image;
+          }
+        }
+      }
       populateExchangeDropdowns();
     }
   } catch (e) { console.warn('Static data failed:', e.message); }
@@ -489,17 +503,20 @@ function parseItemText(text) {
     );
 
     if (looksLikeMods) {
-      // Pre-pass: join multi-line mods split by (mutated) tags.
-      // The game client appends (mutated) to every line of a Foulborn mod,
-      // even when the mod spans multiple lines. A continuation line starts
-      // with lowercase after stripping its tag (new mods start uppercase/+/-/digit).
+      // Pre-pass: join multi-line mods (mirrors APAT's linesToStatStrings).
+      // The game client can split a single mod across multiple lines, each with its own
+      // tag (e.g. (mutated) on Foulborn items). A continuation line starts with:
+      //   - lowercase letter (e.g. "also grant increased Maximum Life...")
+      //   - "and "/"or "/"per " conjunctions
+      //   - "while "/"when "/"during "/"if " conditionals
+      // New mods start with uppercase (not a conjunction), +/-, or digit.
+      const CONTINUATION_RE = /^(?:[a-z]|and\b|or\b|per\b|while\b|when\b|during\b|if\b)/;
       const joined = [];
       for (const l of sec) {
         const stripped = stripModTag(l);
-        if (joined.length > 0 && stripped && /^[a-z]/.test(stripped)) {
+        if (joined.length > 0 && stripped && CONTINUATION_RE.test(stripped)) {
           // Continuation of previous mod — append to it
           const prev = joined[joined.length - 1];
-          // Re-strip the previous line's tag, append this stripped text, keep THIS line's tag
           const prevStripped = stripModTag(prev);
           const thisTag = l.match(MOD_TYPE_RE);
           joined[joined.length - 1] = prevStripped + ' ' + stripped + (thisTag ? ' ' + thisTag[0].trim() : '');
@@ -659,6 +676,63 @@ function isLocalMod(modText, itemClass) {
   return false;
 }
 
+// ── Trade-inverted stats (from APAT stats.ndjson) ────────────────────────────
+// These ~100 stats use reversed sign convention in the trade API:
+// the API expects POSITIVE values for "reduced/less" and NEGATIVE for "increased/more".
+// When combined with our direction swap (negated flag), the inversion cancels out:
+//   shouldNegateAndSwap = negated XOR inverted
+// Source: https://github.com/SnosMe/awakened-poe-trade renderer/public/data/en/stats.ndjson
+const TRADE_INVERTED_STAT_NUMS = new Set([
+  // Action Speed
+  '2878959938','2251857767','1829486532',
+  // Less damage/duration
+  '414991155','4181057577','67637087','2733459550','3796523155','3298440988',
+  '1715495976','1237693206',
+  // Damage Reflection
+  '2510655429','603134774','1574578643','2467518140','2255585376','3991837781',
+  '3829555156','2173565521','648344494','2195698019','4260371388',
+  // Reduced Damage Taken
+  '3001376862','2960683632','3762784591','3303114033','1101403182','1425651005',
+  '3309607228','1686913105','983989924','3859593448','1276918229','248838155',
+  '3158958938','1165847826','1869678332',
+  // Reduced Effect of Ailments/Curses
+  '1478653032','2434101731','3407849389','4265534424','3801067695','1152934561',
+  '433740375','1343931641',
+  // Reduced Costs
+  '2701327257','644456512','116232170','2859471749','2969128501','262301496',
+  '3293275880','73272763','180240697','1274125114','3671920033','1116269888',
+  // Reduced Other
+  '269590092','4147897060','2102212273','1195367742','76848920','1550221644',
+  '2543931078','2576412389','4041805509','1186934478','1912660783',
+  // Reservation Efficiency (inverted wording)
+  '1471600638','3289633055',
+  // Enemy Debuffs
+  '3231424461','1773891268','4107150355','3134790305','3903907406','607839150',
+  '3169825297','3407071583','2570471069',
+  // Golems/Minions
+  '478698670','2861397339','3730242558','1583498502',
+  // Map/Atlas Mods
+  '3737068014','2549889921','2312028586','272758639','4181072906','3729221884',
+  '3957379603',
+  // Miscellaneous
+  '207635700','2443132097','902947445','3281809492','3577248251','2160417795',
+  '129035625','68410701','3544527742','1039536123',
+]);
+
+function isTradeInverted(statId) {
+  if (!statId) return false;
+  const m = statId.match(/stat_(\d+)/);
+  return m ? TRADE_INVERTED_STAT_NUMS.has(m[1]) : false;
+}
+
+// ── Select strategy: prefer stat by item category (mirrors APAT's StatGroup select) ──
+// Maps item class categories to stat selection preferences.
+// When multiple stats share the same text, prefer the one matching the item's category.
+const ITEM_CATEGORY_MAP = {
+  ARMOUR: DEFENCE_CLASSES,
+  WEAPON: WEAPON_CLASSES,
+};
+
 // Match an item mod against an option-type stat (where # is a dropdown, not a number).
 // Returns the option id (integer) on success, or null.
 function matchOptionValue(modText, stat) {
@@ -679,6 +753,25 @@ function matchOptionValue(modText, stat) {
   return null;
 }
 
+// The trade API uses a single stat for both directions (e.g. "#% increased X" covers
+// both "increased" and "reduced"). "reduced" = negative value of "increased", same for
+// "less" vs "more". This mirrors how APAT handles it.
+const DIRECTION_SWAPS = [
+  [/\breduced\b/i,    'increased'],
+  [/\bless\b/i,       'more'],
+];
+function swapDirection(text) {
+  let swapped = false;
+  let out = text;
+  for (const [re, replacement] of DIRECTION_SWAPS) {
+    if (re.test(out)) {
+      out = out.replace(re, replacement);
+      swapped = true;
+    }
+  }
+  return swapped ? out : null;
+}
+
 function findStat(modText, preferType = 'explicit', itemClass = '') {
   if (!statsDb.length) return null;
   const norm       = normMod(modText);
@@ -694,12 +787,30 @@ function findStat(modText, preferType = 'explicit', itemClass = '') {
     normNoSign + ' (local)',
   ] : [];
 
+  // Direction-swapped variants (reduced→increased, less→more)
+  const swappedMod = swapDirection(modText);
+  let swNorm, swNormPlus, swNormNoSign, swLocalVariants;
+  if (swappedMod) {
+    swNorm       = normMod(swappedMod);
+    swNormPlus   = '+' + swNorm;
+    swNormNoSign = swNorm.replace(/^[+\-]#?\s*/, '').trim();
+    swLocalVariants = local ? [
+      swNorm + ' (local)',
+      swNormPlus + ' (local)',
+      '+' + swNormNoSign + ' (local)',
+      swNormNoSign + ' (local)',
+    ] : [];
+  }
+
   // Search order: preferred type first, then other useful types
   const order = [preferType, 'explicit', 'fractured', 'crafted', 'implicit', 'enchant']
     .filter((v, i, a) => a.indexOf(v) === i);
 
-  // Helper: collect ALL stats matching a predicate (for duplicate stat IDs with same text)
-  function collectAll(matchFn) {
+  // Helper: collect ALL stats matching a predicate (for duplicate stat IDs with same text).
+  // Uses APAT's "select" strategy: when multiple stats match, prefer the one whose
+  // trade ID corresponds to the item's category (armour/weapon), fall back to the rest.
+  // Returns a shallow copy so we don't mutate statsDb entries.
+  function collectAll(matchFn, extraProps) {
     const matches = [];
     for (const type of order) {
       for (const s of statsDb) {
@@ -709,18 +820,39 @@ function findStat(modText, preferType = 'explicit', itemClass = '') {
       if (matches.length) break; // stop at first type that has matches
     }
     if (!matches.length) return null;
-    const primary = matches[0];
-    if (matches.length > 1) {
-      // Attach alternate stat IDs so query can try all of them
-      primary.alternates = matches.slice(1).map(s => s.id);
+
+    // Select strategy: if multiple matches and we know the item category,
+    // prefer the local stat for armour/weapon items, non-local for others.
+    let primary = matches[0];
+    if (matches.length > 1 && itemClass) {
+      const isArmour = DEFENCE_CLASSES.has(itemClass);
+      const isWeapon = WEAPON_CLASSES.has(itemClass);
+      const localMatch    = matches.find(s => s.text.toLowerCase().includes('(local)'));
+      const nonLocalMatch = matches.find(s => !s.text.toLowerCase().includes('(local)'));
+      if ((isArmour || isWeapon) && localMatch) primary = localMatch;
+      else if (nonLocalMatch) primary = nonLocalMatch;
     }
-    return primary;
+
+    const result = { ...primary, ...extraProps };
+    // Add trade.inverted flag
+    if (isTradeInverted(result.id)) result.inverted = true;
+    // Store alternates (other matching stat IDs)
+    const others = matches.filter(s => s.id !== primary.id);
+    if (others.length) {
+      result.alternates = others.map(s => s.id);
+    }
+    return result;
   }
 
   // For local mods: try the "(Local)" variant first, then fall back to plain
   if (local) {
     const result = collectAll(s => localVariants.some(v => s.text.toLowerCase() === v));
     if (result) return result;
+    // Try direction-swapped local variants
+    if (swLocalVariants) {
+      const swResult = collectAll(s => swLocalVariants.some(v => s.text.toLowerCase() === v), { negated: true });
+      if (swResult) return swResult;
+    }
   }
 
   // Exact normalized match — collect all duplicates
@@ -729,6 +861,15 @@ function findStat(modText, preferType = 'explicit', itemClass = '') {
     return st === norm || st === normPlus || st === normNoSign;
   });
   if (exactResult) return exactResult;
+
+  // Try direction-swapped match (reduced→increased, less→more)
+  if (swappedMod) {
+    const swResult = collectAll(s => {
+      const st = s.text.toLowerCase();
+      return st === swNorm || st === swNormPlus || st === swNormNoSign;
+    }, { negated: true });
+    if (swResult) return swResult;
+  }
 
   // Option-type stat match (e.g. "Added Small Passive Skills grant: #" where # is a dropdown)
   for (const type of order) {
@@ -1112,20 +1253,43 @@ function modRow(id, modText, stat, type) {
   const ok   = !!stat;
   const cls  = `mod-type-${type}`;
   const altIds = stat?.alternates || [];
+  const negated  = !!stat?.negated;  // "reduced"→"increased" direction swap
+  const inverted = !!stat?.inverted; // trade API uses reversed sign convention
+  // APAT's tradeInvert logic: shouldNegate = negated XOR inverted
+  // When both are true they cancel out; when only one is true, negate and swap.
+  const shouldNegate = negated !== inverted;
+  const flags = [negated ? 'negated' : '', inverted ? 'inverted' : ''].filter(Boolean).join(', ');
   const indicator = ok
-    ? `<span class="match-ok" title="${esc(stat.id)}${altIds.length ? ' (+' + altIds.length + ' alternates)' : ''}">✓</span>`
+    ? `<span class="match-ok" title="${esc(stat.id)}${altIds.length ? ' (+' + altIds.length + ' alt)' : ''}${flags ? ' (' + flags + ')' : ''}">✓</span>`
     : `<span class="match-fail" title="No stat match — skipped">✗</span>`;
   const optAttr = isOption ? ` data-option-id="${esc(String(stat.optionId))}"` : '';
   const altAttr = altIds.length ? ` data-alt-ids="${esc(altIds.join(','))}"` : '';
-  let h = `<div class="toggle-row ${cls}" data-stat-id="${ok ? esc(stat.id) : ''}"${optAttr}${altAttr}>`;
+  const negAttr = shouldNegate ? ' data-negated="1"' : '';
+  let h = `<div class="toggle-row ${cls}" data-stat-id="${ok ? esc(stat.id) : ''}"${optAttr}${altAttr}${negAttr}>`;
   h += `<input type="checkbox" id="mod-${id}" ${ok ? 'checked' : 'disabled'} data-mod="${esc(modText)}">`;
   h += `<label for="mod-${id}">${esc(modText)}</label>`;
   h += indicator;
   if (val && ok) {
-    const prefillMax = val.isRange ? val.max : '';
+    let minVal, maxVal;
+    if (shouldNegate) {
+      // Negate AND swap min/max (APAT's filterAdjustmentForNegate + getMinMax).
+      // "50% reduced X" → API stat "#% increased X" with value -50.
+      // We want max=-50 (meaning "at most -50 increased" = "at least 50% reduced").
+      // For range mods: original [min, max] → negated [-max, -min].
+      if (val.isRange) {
+        minVal = -Math.abs(val.max);
+        maxVal = -Math.abs(val.min);
+      } else {
+        minVal = '';  // leave min open
+        maxVal = -Math.abs(val.min);  // cap at the negated value
+      }
+    } else {
+      minVal = val.min;
+      maxVal = val.isRange ? val.max : '';
+    }
     h += `<div class="row-inputs">`;
-    h += `<span class="filter-label">min</span><input type="number" id="mod-min-${id}" value="${val.min}" step="1" class="num-input" placeholder="—">`;
-    h += `<span class="filter-label">max</span><input type="number" id="mod-max-${id}" value="${prefillMax}" step="1" class="num-input" placeholder="∞">`;
+    h += `<span class="filter-label">min</span><input type="number" id="mod-min-${id}" value="${minVal}" step="1" class="num-input" placeholder="—">`;
+    h += `<span class="filter-label">max</span><input type="number" id="mod-max-${id}" value="${maxVal}" step="1" class="num-input" placeholder="∞">`;
     h += `</div>`;
   }
   h += `</div>`;
@@ -1145,7 +1309,8 @@ function extractModValue(text) {
   const rng = text.match(/(\d+)\s+to\s+(\d+)/i);
   if (rng && /^adds\b/i.test(text))
     return { min: +rng[1], max: +rng[2], isRange: true };
-  const single = text.match(/[+\-]?(\d+(?:\.\d+)?)/);
+  // Capture sign so "-1 to Maximum Power Charges" gives min: -1
+  const single = text.match(/([+\-]?\d+(?:\.\d+)?)/);
   if (single) return { min: parseFloat(single[1]), max: null, isRange: false };
   return null;
 }
@@ -1355,10 +1520,10 @@ function buildQuery(item) {
   function addMods(prefix) {
     const container = document.querySelectorAll(`[id^="mod-${prefix}-"]`);
     for (const chk of container) {
-      if (!chk.checked) continue;
       const row    = chk.closest('.toggle-row');
       const statId = row?.dataset.statId;
       if (!statId) continue;
+      const isDisabled = !chk.checked;
       const suffix   = chk.id.replace(`mod-${prefix}-`, '');
       const value    = {};
       const optionId = row.dataset.optionId;
@@ -1374,14 +1539,14 @@ function buildQuery(item) {
       if (altIdsStr) {
         // Multiple stat IDs match this mod — use a count group with min:1
         // so the API tries all of them (only one will be correct)
-        const altGroup = { type: 'count', value: { min: 1 }, filters: [] };
-        altGroup.filters.push({ id: statId, value: { ...value }, disabled: false });
+        const altGroup = { type: 'count', value: { min: 1 }, filters: [], disabled: isDisabled };
+        altGroup.filters.push({ id: statId, value: { ...value }, disabled: isDisabled });
         for (const altId of altIdsStr.split(',')) {
-          altGroup.filters.push({ id: altId.trim(), value: { ...value }, disabled: false });
+          altGroup.filters.push({ id: altId.trim(), value: { ...value }, disabled: isDisabled });
         }
         q.stats.push(altGroup);
       } else {
-        mainGroup.filters.push({ id: statId, value, disabled: false });
+        mainGroup.filters.push({ id: statId, value, disabled: isDisabled });
       }
     }
   }
@@ -1551,7 +1716,9 @@ const CURRENCY_ABBR = {
 
 function formatCurrency(amount, currency) {
   const abbr = CURRENCY_ABBR[currency] || currency;
-  return `${amount} <span class="cur cur-${esc(currency)}">${esc(abbr)}</span>`;
+  const iconUrl = currencyIcons[currency];
+  const iconHtml = iconUrl ? `<img class="cur-icon" src="${esc(iconUrl)}" alt="${esc(abbr)}">` : '';
+  return `${amount} ${iconHtml}<span class="cur cur-${esc(currency)}">${esc(abbr)}</span>`;
 }
 
 function timeAgo(iso) {
