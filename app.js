@@ -342,6 +342,28 @@ function isPropertyLine(l) {
   return /^(Item Level|Quality|Sockets|Level|Physical Damage|Elemental Damage|Chaos Damage|Fire Damage|Cold Damage|Lightning Damage|Critical Strike Chance|Attacks per Second|Weapon Range|Armour|Energy Shield|Evasion Rating|Ward|Chance to Block|Requirements|Str|Dex|Int|Map Tier|Stack Size|Experience|Movement Speed)\b/.test(l);
 }
 
+// Detect sections that are definitively NOT mods. Everything else → treat as mods.
+// False negatives (flavour text entering mod parser) are harmless — findStat() won't match,
+// they render as disabled ✗ rows, and buildQuery() skips them.
+const INSTRUCTION_RE = /^(?:Place into|Right click to remove|Right click this item|Can be anointed|Can be used in|Shift click to unstack|Click to add|Currently has \d|Travel to this)/i;
+const GEM_CLASSES = new Set(['Active Skill Gems', 'Support Skill Gems', 'Gems', 'Support Gems']);
+function isNonModSection(sec, itemClass) {
+  // Placement / usage instructions — stable game-client boilerplate
+  if (sec.some(l => INSTRUCTION_RE.test(l))) return true;
+  // Divination cards — non-property, non-standalone sections are reward/flavour text
+  if (itemClass === 'Divination Cards' || itemClass === 'Divination Card') return true;
+  // Currency description prose — no mod tags, contains periods (full sentences)
+  if (itemClass === 'Stackable Currency' || itemClass === 'Currency') {
+    if (!sec.some(l => MOD_TYPE_RE.test(l)) && sec.some(l => l.includes('.'))) return true;
+  }
+  // Gem description prose — no mod tags, no leading numbers, lines end with periods
+  if (GEM_CLASSES.has(itemClass)) {
+    if (!sec.some(l => MOD_TYPE_RE.test(l)) && !sec.some(l => /^[+\-]?\d/.test(l))
+        && sec.some(l => /\.\s*$/.test(l))) return true;
+  }
+  return false;
+}
+
 const STANDALONE = new Set([
   'Corrupted','Mirrored','Unidentified','Fractured Item','Synthesised Item',
   'Shaper Item','Elder Item','Crusader Item','Hunter Item','Redeemer Item','Warlord Item',
@@ -493,62 +515,54 @@ function parseItemText(text) {
       continue;
     }
 
-    // Mod section — check each line for type tags
-    const looksLikeMods = sec.some(l =>
-      /^[+\-]?\d/.test(l) ||
-      /\b(increased|reduced|more|less|adds|to|gain|cannot|regenerate|grants)\b/i.test(l) ||
-      l.includes('(implicit)') || l.includes('(crafted)') ||
-      l.includes('(fractured)') || l.includes('(enchant)') ||
-      l.includes('(mutated)')
-    );
-
-    if (looksLikeMods) {
-      // Pre-pass: join multi-line mods (mirrors APAT's linesToStatStrings).
-      // The game client can split a single mod across multiple lines, each with its own
-      // tag (e.g. (mutated) on Foulborn items). A continuation line starts with:
-      //   - lowercase letter (e.g. "also grant increased Maximum Life...")
-      //   - "and "/"or "/"per " conjunctions
-      //   - "while "/"when "/"during "/"if " conditionals
-      // New mods start with uppercase (not a conjunction), +/-, or digit.
-      const CONTINUATION_RE = /^(?:[a-z]|and\b|or\b|per\b|while\b|when\b|during\b|if\b)/;
-      const joined = [];
+    // Non-mod section? (instructions, gem descriptions, div card text, currency prose)
+    if (isNonModSection(sec, item.itemClass)) {
       for (const l of sec) {
-        const stripped = stripModTag(l);
-        if (joined.length > 0 && stripped && CONTINUATION_RE.test(stripped)) {
-          // Continuation of previous mod — append to it
-          const prev = joined[joined.length - 1];
-          const prevStripped = stripModTag(prev);
-          const thisTag = l.match(MOD_TYPE_RE);
-          joined[joined.length - 1] = prevStripped + ' ' + stripped + (thisTag ? ' ' + thisTag[0].trim() : '');
-        } else {
-          joined.push(l);
-        }
-      }
-
-      for (const l of joined) {
-        if (l === 'Corrupted')   { item.corrupted = true; continue; }
-        if (l === 'Mirrored')    { item.mirrored  = true; continue; }
-        if (STANDALONE.has(l) || l.startsWith('Note:')) continue;
-
-        const type  = getModType(l);
-        const clean = stripModTag(l);
-        if (!clean) continue;
-
-        switch (type) {
-          case 'crafted':   item.craftedMods.push(clean);  break;
-          case 'fractured': item.fracturedMods.push(clean); break;
-          case 'enchant':   item.enchantMods.push(clean);  break;
-          case 'implicit':  item.implicitMods.push(clean); break;
-          default:          item.explicitMods.push(clean); break;
-        }
+        if (l === 'Corrupted')  item.corrupted = true;
+        if (l === 'Mirrored')   item.mirrored  = true;
       }
       continue;
     }
 
-    // Otherwise likely flavour text — check for standalone flags anyway
+    // Everything else is treated as a mod section.
+    // Pre-pass: join multi-line mods (mirrors APAT's linesToStatStrings).
+    // The game client can split a single mod across multiple lines, each with its own
+    // tag (e.g. (mutated) on Foulborn items). A continuation line starts with:
+    //   - lowercase letter (e.g. "also grant increased Maximum Life...")
+    //   - "and "/"or "/"per " conjunctions
+    //   - "while "/"when "/"during "/"if " conditionals
+    // New mods start with uppercase (not a conjunction), +/-, or digit.
+    const CONTINUATION_RE = /^(?:[a-z]|and\b|or\b|per\b|while\b|when\b|during\b|if\b)/;
+    const joined = [];
     for (const l of sec) {
-      if (l === 'Corrupted')  item.corrupted = true;
-      if (l === 'Mirrored')   item.mirrored  = true;
+      const stripped = stripModTag(l);
+      if (joined.length > 0 && stripped && CONTINUATION_RE.test(stripped)) {
+        // Continuation of previous mod — append to it
+        const prev = joined[joined.length - 1];
+        const prevStripped = stripModTag(prev);
+        const thisTag = l.match(MOD_TYPE_RE);
+        joined[joined.length - 1] = prevStripped + ' ' + stripped + (thisTag ? ' ' + thisTag[0].trim() : '');
+      } else {
+        joined.push(l);
+      }
+    }
+
+    for (const l of joined) {
+      if (l === 'Corrupted')   { item.corrupted = true; continue; }
+      if (l === 'Mirrored')    { item.mirrored  = true; continue; }
+      if (STANDALONE.has(l) || l.startsWith('Note:')) continue;
+
+      const type  = getModType(l);
+      const clean = stripModTag(l);
+      if (!clean) continue;
+
+      switch (type) {
+        case 'crafted':   item.craftedMods.push(clean);  break;
+        case 'fractured': item.fracturedMods.push(clean); break;
+        case 'enchant':   item.enchantMods.push(clean);  break;
+        case 'implicit':  item.implicitMods.push(clean); break;
+        default:          item.explicitMods.push(clean); break;
+      }
     }
   }
 
@@ -735,20 +749,28 @@ const ITEM_CATEGORY_MAP = {
 
 // Match an item mod against an option-type stat (where # is a dropdown, not a number).
 // Returns the option id (integer) on success, or null.
+// Constructs expected full text per option and compares, with flexible article normalization
+// to handle differences like "the matching modifier" (in-game) vs "matching modifier" (stats DB).
 function matchOptionValue(modText, stat) {
   if (!stat.options || !stat.options.length) return null;
   const hashIdx = stat.text.indexOf('#');
   if (hashIdx === -1) return null;
-  const prefix    = stat.text.slice(0, hashIdx).toLowerCase();
-  const suffix    = stat.text.slice(hashIdx + 1).toLowerCase();
-  const modLower  = modText.toLowerCase();
+  const prefix   = stat.text.slice(0, hashIdx).toLowerCase();
+  const suffix   = stat.text.slice(hashIdx + 1).toLowerCase();
+  const modLower = modText.toLowerCase();
   if (!modLower.startsWith(prefix)) return null;
-  let candidate   = modLower.slice(prefix.length);
-  if (suffix && candidate.endsWith(suffix)) candidate = candidate.slice(0, candidate.length - suffix.length);
-  candidate = candidate.trim();
-  const candNorm  = normMod(candidate);
+
+  // Try each option: construct expected text and compare
   for (const opt of stat.options) {
-    if (opt.text.toLowerCase() === candidate || normMod(opt.text) === candNorm) return opt.id;
+    const expected = prefix + opt.text.toLowerCase() + suffix;
+    if (modLower === expected) return opt.id;
+  }
+  // Flexible match: normalize articles/whitespace
+  const normFlex = s => s.replace(/\b(the|a|an)\b/gi, '').replace(/\s+/g, ' ').trim();
+  const modNorm = normFlex(modLower);
+  for (const opt of stat.options) {
+    const expected = normFlex(prefix + opt.text.toLowerCase() + suffix);
+    if (modNorm === expected) return opt.id;
   }
   return null;
 }
