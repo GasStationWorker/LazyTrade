@@ -1,19 +1,18 @@
-// Simple CORS proxy for the PoE Trade API
+// Simple CORS proxy for the PoE Trade API + Stash API
 // Usage: node proxy.js
-// Proxies http://localhost:3456/api/trade/* → https://www.pathofexile.com/api/trade/*
+// Proxies http://localhost:3456/* → https://www.pathofexile.com/*
 
 const http = require('http');
 const https = require('https');
-const url = require('url');
 
 const PORT = 3456;
-const TARGET = 'https://www.pathofexile.com';
 
 const server = http.createServer((req, res) => {
-  // CORS headers
+  // CORS headers — allow Cookie + X-POESESSID for stash requests
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, User-Agent');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, User-Agent, X-POESESSID');
+  res.setHeader('Access-Control-Expose-Headers', 'Retry-After, X-Rate-Limit-Policy, X-Rate-Limit-Rules, X-Rate-Limit-Ip, X-Rate-Limit-Ip-State, X-Rate-Limit-Account, X-Rate-Limit-Account-State');
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
@@ -21,18 +20,26 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  const parsed = url.parse(req.url);
-  const targetUrl = TARGET + parsed.path;
+  const parsedUrl = new URL(req.url, `http://localhost:${PORT}`);
+
+  const headers = {
+    'Content-Type': req.headers['content-type'] || 'application/json',
+    'User-Agent': 'PoETradeWebApp/1.0 (contact: poe-trade-app)',
+    'Accept': 'application/json',
+  };
+
+  // Forward POESESSID as Cookie for stash API requests
+  // The browser sends it via X-POESESSID header (can't set Cookie cross-origin),
+  // and the proxy converts it to a Cookie header for pathofexile.com.
+  if (req.headers['x-poesessid']) {
+    headers['Cookie'] = 'POESESSID=' + req.headers['x-poesessid'];
+  }
 
   const options = {
     hostname: 'www.pathofexile.com',
-    path: parsed.path,
+    path: parsedUrl.pathname + parsedUrl.search,
     method: req.method,
-    headers: {
-      'Content-Type': req.headers['content-type'] || 'application/json',
-      'User-Agent': 'PoETradeWebApp/1.0 (contact: poe-trade-app)',
-      'Accept': 'application/json',
-    },
+    headers,
   };
 
   const proxyReq = https.request(options, (proxyRes) => {
@@ -70,5 +77,5 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, () => {
   console.log(`PoE Trade CORS proxy running on http://localhost:${PORT}`);
-  console.log(`Proxying to ${TARGET}/api/trade/*`);
+  console.log(`Proxying to https://www.pathofexile.com`);
 });

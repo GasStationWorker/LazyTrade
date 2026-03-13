@@ -37,6 +37,9 @@ coverage/
 .claude/
 CLAUDE.md
 
+# Testing environment
+tests/
+
 # Misc
 *.tmp
 *.bak

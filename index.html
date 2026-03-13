@@ -41,6 +41,7 @@
       <div class="search-mode-toggle">
         <button id="mode-search" class="mode-btn active">Item Search</button>
         <button id="mode-exchange" class="mode-btn">Bulk Exchange</button>
+        <button id="mode-stash" class="mode-btn">Stash Check</button>
       </div>
 
       <div id="item-search-panel">
@@ -70,6 +71,46 @@
         <div class="search-bar">
           <button id="exchange-search-btn" class="btn-primary btn-search">Search Exchange</button>
           <span id="exchange-status" class="search-status"></span>
+        </div>
+      </div>
+
+      <div id="stash-panel" style="display:none;">
+        <div class="stash-connect">
+          <div class="stash-row">
+            <label for="stash-poesessid">POESESSID</label>
+            <input type="password" id="stash-poesessid" class="stash-input" placeholder="Paste your POESESSID here">
+          </div>
+          <div class="stash-row">
+            <button id="stash-connect-btn" class="btn-primary">Connect</button>
+            <span id="stash-connect-status" class="search-status"></span>
+          </div>
+        </div>
+        <div id="stash-tab-section" style="display:none;">
+          <div class="stash-row">
+            <label for="stash-tab-select">Stash Tab</label>
+            <select id="stash-tab-select" class="exchange-select"><option value="">Select a tab…</option></select>
+          </div>
+          <div class="stash-row">
+            <button id="stash-load-btn" class="btn-primary">Load &amp; Price Check</button>
+            <span id="stash-load-status" class="search-status"></span>
+          </div>
+          <div id="stash-progress" class="stash-progress" style="display:none;">
+            <div class="stash-progress-bar"><div id="stash-progress-fill" class="stash-progress-fill"></div></div>
+            <span id="stash-progress-text" class="stash-progress-text"></span>
+          </div>
+        </div>
+        <div id="stash-results" class="stash-results" style="display:none;">
+          <table class="stash-table">
+            <thead>
+              <tr>
+                <th>Item</th>
+                <th>Type</th>
+                <th>iLvl</th>
+                <th>Price</th>
+              </tr>
+            </thead>
+            <tbody id="stash-results-body"></tbody>
+          </table>
         </div>
       </div>
 
@@ -107,6 +148,7 @@
     </div>
   </div>
 
+  <script src="parser.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

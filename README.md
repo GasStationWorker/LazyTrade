@@ -73,6 +73,32 @@ Switch to **Bulk Exchange** mode using the toggle at the top of the left panel. 
 | **View on trade site** link | Appears after searching — direct link to your search results on the official site |
 | **Clear** button | Reset the item input and start fresh |
 
+### Stash price checker (experimental)
+
+> **WARNING — DO NOT USE THIS UNLESS YOU FULLY UNDERSTAND THE RISKS.**
+>
+> This feature uses your **POESESSID session cookie** to access your stash. This is a **temporary developer-only workaround for testing** and **will be replaced with proper OAuth2 authentication** as soon as the feature is fleshed out.
+>
+> **Your POESESSID grants full access to your entire account session.** Anyone who has it can trade your items, modify your characters, and act as you. **Never share it.** The app only sends it to the local proxy running on your own machine — it is never stored on disk or sent anywhere else — but you are still trusting this code with your session.
+>
+> This uses the legacy undocumented `character-window/get-stash-items` endpoint which could break or be removed by GGG at any time. The proper production approach is **OAuth2 Authorization Code Grant** with the `account:stashes` scope via [pathofexile.com/developer](https://www.pathofexile.com/developer).
+>
+> **TL;DR: This exists for curious developers to test with. Do not use it casually. OAuth2 is coming.**
+
+If you still want to try it:
+
+1. Switch to **Stash Check** mode using the toggle at the top of the left panel
+2. **Enter your POESESSID** — this is your session cookie from pathofexile.com (see below how to get it)
+3. Click **Connect** — your stash tabs appear in the dropdown
+4. Select a tab and click **Load & Price Check** — the app fetches all items and searches the trade API for each one
+5. Results appear in a table with item names, types, and lowest listed prices
+6. Click any item row to open it in the full Item Search view with all mods and filters
+
+**Getting your POESESSID:**
+1. Log in to [pathofexile.com](https://www.pathofexile.com)
+2. Open browser DevTools (F12) → Application tab (Chrome/Edge) or Storage tab (Firefox) → Cookies → `https://www.pathofexile.com`
+3. Copy the value of the `POESESSID` cookie — it's a long hex string like `a1b2c3d4e5f6...`
+
 ## Troubleshooting
 
 | Problem | Fix |
@@ -88,7 +114,8 @@ Switch to **Bulk Exchange** mode using the toggle at the top of the left panel. 
 ```
 index.html          — the app (open this in your browser)
 style.css           — styling
-app.js              — all the logic (parsing, searching, rendering)
+parser.js           — item parser (shared between browser and tests)
+app.js              — UI logic (searching, rendering, stash checker)
 proxy.js            — CORS proxy server (run with Node.js)
 test-parse.js       — test script for the item parser
 example-items.txt   — sample item text for each item class (body armour, weapon, jewel, etc.)

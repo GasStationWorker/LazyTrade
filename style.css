@@ -696,6 +696,39 @@ textarea#item-input::placeholder { color: var(--text-dim); }
 .tag-gem-lvl         { background: #0a2a28; color: #1ba29b; }
 .tag-gem-q           { background: #0a2a28; color: #1ba29b; }
 
+/* ── Stash Check ──────────────────────────────────────────────────────────── */
+.stash-connect       { padding: 8px 0; }
+.stash-row           { display: flex; align-items: center; gap: 8px; padding: 6px 0; }
+.stash-row label     { min-width: 90px; font-size: 13px; color: var(--text-dim); font-weight: 600; }
+.stash-input         { flex: 1; background: var(--bg-panel); color: var(--text); border: 1px solid var(--border); padding: 5px 8px; border-radius: 4px; font-size: 12px; font-family: monospace; }
+.stash-input:focus   { border-color: var(--gold-dim); outline: none; }
+
+.stash-progress      { padding: 8px 0; }
+.stash-progress-bar  { height: 6px; background: var(--bg-panel-alt); border-radius: 3px; overflow: hidden; }
+.stash-progress-fill { height: 100%; background: var(--gold); border-radius: 3px; transition: width 0.3s; width: 0; }
+.stash-progress-text { font-size: 11px; color: var(--text-dim); margin-top: 4px; display: block; }
+
+.stash-results       { margin-top: 8px; }
+.stash-table         { width: 100%; border-collapse: collapse; font-size: 12px; }
+.stash-table th      { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); color: var(--text-dim); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+.stash-table td      { padding: 6px 8px; border-bottom: 1px solid var(--bg-panel-alt); vertical-align: middle; }
+.stash-table tr:hover td { background: var(--bg-hover); }
+
+.stash-item-name     { color: var(--text-bright); font-weight: 500; }
+.stash-item-name.rarity-unique   { color: var(--col-unique); }
+.stash-item-name.rarity-rare     { color: var(--col-rare); }
+.stash-item-name.rarity-magic    { color: var(--col-magic); }
+.stash-item-name.rarity-gem      { color: var(--col-gem); }
+.stash-item-name.rarity-currency { color: var(--col-currency); }
+.stash-item-icon     { width: 32px; height: 32px; object-fit: contain; vertical-align: middle; margin-right: 6px; }
+.stash-price         { color: var(--gold-bright); font-weight: 600; white-space: nowrap; }
+.stash-price-none    { color: var(--text-dim); font-style: italic; }
+.stash-ilvl          { color: var(--text-dim); text-align: center; }
+.stash-type          { color: var(--text-dim); font-size: 11px; }
+.stash-skip          { color: var(--text-dim); font-style: italic; font-size: 11px; }
+.stash-row-clickable { cursor: pointer; }
+.stash-row-clickable:hover { background: var(--panel-hover, rgba(255,255,255,0.05)); }
+
 /* ── Scrollbars ───────────────────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: var(--bg); }

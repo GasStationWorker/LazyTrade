@@ -436,3 +436,58 @@ Item Level: 83
 +40% to Fire Resistance
 +33% to Lightning Resistance
 40% increased Energy Shield
+
+===== JEWEL (Unique, Forbidden Flame — option-type mod) =====
+Item Class: Jewels
+Rarity: Unique
+Forbidden Flame
+Crimson Jewel
+--------
+Limited to: 1
+--------
+Requirements:
+Class:: Marauder
+--------
+Item Level: 86
+--------
+Allocates Hinekora, Death's Fury if you have the matching modifier on Forbidden Flesh
+--------
+The minds of those studied utterly by the Cleansing Fire
+continue to think and dream and beg for silence...
+--------
+Place into an allocated Jewel Socket on the Passive Skill Tree. Right click to remove from the Socket.
+--------
+Corrupted
+
+===== SKILL GEM (Frostblink — gem description should not be mods) =====
+Item Class: Skill Gems
+Rarity: Gem
+Frostblink
+--------
+Spell, Movement, Duration, Cold, Travel, Blink, AoE
+Level: 4
+Cost: 13 Mana
+Cooldown Time: 2.95 sec
+Cast Time: Instant
+Critical Strike Chance: 5.00%
+Effectiveness of Added Damage: 190%
+--------
+Requirements:
+Level: 12
+Int: 33
+--------
+Teleport to a location, damaging enemies and leaving Chilled ground in an area at both ends of the teleport. Shares a cooldown with other Blink skills.
+--------
+Deals 21 to 32 Cold Damage
+Base duration is 3.00 seconds
+15% increased Cooldown Recovery Rate for each Normal or Magic Enemy in Area
+83% increased Cooldown Recovery Rate for each Rare or Unique Enemy in Area
+6% increased maximum travel distance
+--------
+Experience: 22,895/22,895
+--------
+Next-level requirements:
+Level: 16
+Int: 41
+--------
+Place into an item socket of the right colour to gain this skill. Right click to remove from a socket.

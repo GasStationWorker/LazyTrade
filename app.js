@@ -51,6 +51,7 @@ $('poe1-btn').addEventListener('click', () => switchGame('poe1'));
 $('poe2-btn').addEventListener('click', () => switchGame('poe2'));
 $('mode-search').addEventListener('click', () => switchMode('search'));
 $('mode-exchange').addEventListener('click', () => switchMode('exchange'));
+$('mode-stash').addEventListener('click', () => switchMode('stash'));
 $('exchange-search-btn').addEventListener('click', handleExchangeSearch);
 
 let staticData = []; // [{id, label, entries: [{id, text, image}]}]
@@ -59,8 +60,10 @@ const currencyIcons = {}; // populated from staticData: { currencyId: imageUrl }
 function switchMode(mode) {
   $('mode-search').classList.toggle('active', mode === 'search');
   $('mode-exchange').classList.toggle('active', mode === 'exchange');
+  $('mode-stash').classList.toggle('active', mode === 'stash');
   $('item-search-panel').style.display = mode === 'search' ? 'block' : 'none';
   $('exchange-panel').style.display    = mode === 'exchange' ? 'block' : 'none';
+  $('stash-panel').style.display       = mode === 'stash' ? 'block' : 'none';
   parsedSection.style.display = 'none';
   if (mode === 'exchange' && !staticData.length) loadStaticData();
 }
@@ -320,611 +323,12 @@ function appendExchangeResults(results) {
   }
 }
 
-// ── Item Parsing ──────────────────────────────────────────────────────────────
-// Tags appended to mod lines by the game client
-const MOD_TYPE_RE = /\s*\((implicit|crafted|fractured|enchant(?:ment)?|scourge|mutated)\)\s*$/i;
-
-// Cluster jewel mods are always enchants — even when the game client omits the (enchant) tag
-const CLUSTER_ENCHANT_RE = /^(?:Adds \d+ Passive Skills?|Added Small Passive Skills?(?:\s+also)?\s+grant:|(?:\d+|\#) Added Passive Skill)/i;
-
-function getModType(line) {
-  if (CLUSTER_ENCHANT_RE.test(line)) return 'enchant';
-  const m = line.match(MOD_TYPE_RE);
-  if (!m) return 'explicit';
-  const t = m[1].toLowerCase();
-  if (t === 'enchantment') return 'enchant';
-  if (t === 'mutated' || t === 'scourge') return 'explicit'; // no separate API type, treated as explicit
-  return t;
-}
-function stripModTag(line) { return line.replace(MOD_TYPE_RE, '').trim(); }
-
-function isPropertyLine(l) {
-  return /^(Item Level|Quality|Sockets|Level|Physical Damage|Elemental Damage|Chaos Damage|Fire Damage|Cold Damage|Lightning Damage|Critical Strike Chance|Attacks per Second|Weapon Range|Armour|Energy Shield|Evasion Rating|Ward|Chance to Block|Requirements|Str|Dex|Int|Map Tier|Stack Size|Experience|Movement Speed)\b/.test(l);
-}
-
-// Detect sections that are definitively NOT mods. Everything else → treat as mods.
-// False negatives (flavour text entering mod parser) are harmless — findStat() won't match,
-// they render as disabled ✗ rows, and buildQuery() skips them.
-const INSTRUCTION_RE = /^(?:Place into|Right click to remove|Right click this item|Can be anointed|Can be used in|Shift click to unstack|Click to add|Currently has \d|Travel to this)/i;
-const GEM_CLASSES = new Set(['Active Skill Gems', 'Support Skill Gems', 'Gems', 'Support Gems']);
-function isNonModSection(sec, itemClass) {
-  // Placement / usage instructions — stable game-client boilerplate
-  if (sec.some(l => INSTRUCTION_RE.test(l))) return true;
-  // Divination cards — non-property, non-standalone sections are reward/flavour text
-  if (itemClass === 'Divination Cards' || itemClass === 'Divination Card') return true;
-  // Currency description prose — no mod tags, contains periods (full sentences)
-  if (itemClass === 'Stackable Currency' || itemClass === 'Currency') {
-    if (!sec.some(l => MOD_TYPE_RE.test(l)) && sec.some(l => l.includes('.'))) return true;
-  }
-  // Gem description prose — no mod tags, no leading numbers, lines end with periods
-  if (GEM_CLASSES.has(itemClass)) {
-    if (!sec.some(l => MOD_TYPE_RE.test(l)) && !sec.some(l => /^[+\-]?\d/.test(l))
-        && sec.some(l => /\.\s*$/.test(l))) return true;
-  }
-  return false;
-}
-
-const STANDALONE = new Set([
-  'Corrupted','Mirrored','Unidentified','Fractured Item','Synthesised Item',
-  'Shaper Item','Elder Item','Crusader Item','Hunter Item','Redeemer Item','Warlord Item',
-  'Searing Exarch Item','Eater of Worlds Item',
-]);
-
-const CATEGORY_MAP = {
-  'Claws': 'weapon.claw', 'Daggers': 'weapon.dagger', 'Rune Daggers': 'weapon.runedagger',
-  'Wands': 'weapon.wand', 'One Hand Swords': 'weapon.onesword',
-  'Thrusting One Hand Swords': 'weapon.onesword', 'One Hand Axes': 'weapon.oneaxe',
-  'One Hand Maces': 'weapon.onemace', 'Bows': 'weapon.bow',
-  'Staves': 'weapon.staff', 'Warstaves': 'weapon.warstaff',
-  'Two Hand Swords': 'weapon.twosword', 'Two Hand Axes': 'weapon.twoaxe',
-  'Two Hand Maces': 'weapon.twomace', 'Sceptres': 'weapon.sceptre',
-  'Flails': 'weapon.flail', 'Spears': 'weapon.spear', 'Crossbows': 'weapon.crossbow',
-  'Body Armours': 'armour.chest', 'Helmets': 'armour.helmet',
-  'Gloves': 'armour.gloves', 'Boots': 'armour.boots',
-  'Shields': 'armour.shield', 'Quivers': 'armour.quiver',
-  'Belts': 'accessory.belt', 'Rings': 'accessory.ring', 'Amulets': 'accessory.amulet',
-  'Jewels': 'jewel', 'Jewel': 'jewel', 'Abyss Jewels': 'jewel.abyss',
-  'Maps': 'map', 'Life Flasks': 'flask', 'Utility Flasks': 'flask',
-  'Mana Flasks': 'flask', 'Hybrid Flasks': 'flask',
-  'Charms': 'charm', 'Tinctures': 'tincture',
-};
-
-const INFLUENCE_MAP = {
-  'Shaper Item': 'shaper', 'Elder Item': 'elder',
-  'Crusader Item': 'crusader', 'Hunter Item': 'hunter',
-  'Redeemer Item': 'redeemer', 'Warlord Item': 'warlord',
-  'Searing Exarch Item': 'searing_exarch', 'Eater of Worlds Item': 'eater_of_worlds',
-};
-
-function parseItemText(text) {
-  const lines    = text.trim().split('\n').map(l => l.trim());
-  const sections = [];
-  let   cur      = [];
-  for (const l of lines) {
-    if (l === '--------') { if (cur.length) sections.push(cur); cur = []; }
-    else if (l) cur.push(l);
-  }
-  if (cur.length) sections.push(cur);
-  if (sections.length < 2) return null;
-
-  const item = {
-    rarity: '', name: '', baseType: '', itemClass: '',
-    itemLevel: null, quality: null, qualityType: '',
-    sockets: '', socketCount: 0, linkCount: 0,
-    explicitMods: [], implicitMods: [], craftedMods: [], fracturedMods: [], enchantMods: [],
-    corrupted: false, mirrored: false, identified: true, synthesised: false,
-    influences: [],
-    // Weapon
-    physDps: null, eleDps: null, totalDps: null, critChance: null, aps: null,
-    // Defence
-    armour: null, evasion: null, energyShield: null, ward: null,
-    // Gem
-    gemLevel: null, gemExperience: null,
-    // Map
-    mapTier: null,
-    // Misc
-    blockChance: null, requiresLevel: null, stackSize: null,
-    category: 'unknown',
-  };
-
-  // ── Header ──
-  const hdr = sections[0];
-  for (const l of hdr) {
-    if (l.startsWith('Item Class:')) item.itemClass = l.replace('Item Class:', '').trim();
-    else if (l.startsWith('Rarity:'))    item.rarity = l.replace('Rarity:', '').trim().toLowerCase();
-  }
-  const nameLines = hdr.filter(l => !l.startsWith('Item Class:') && !l.startsWith('Rarity:'));
-  if (nameLines.length >= 2) { item.name = nameLines[0]; item.baseType = nameLines[1]; }
-  else if (nameLines.length === 1) { item.baseType = nameLines[0]; }
-
-  // Strip "Synthesised " prefix from base type — API expects plain base type + a separate filter
-  if (item.baseType.startsWith('Synthesised ')) {
-    item.synthesised = true;
-    item.baseType = item.baseType.slice('Synthesised '.length);
-  }
-
-  // Strip known unique-name prefixes (Affliction "Foulborn", etc.)
-  // These are league mechanics that prepend to the canonical unique name
-  const UNIQUE_NAME_PREFIXES = ['Foulborn '];
-  for (const prefix of UNIQUE_NAME_PREFIXES) {
-    if (item.name.startsWith(prefix)) {
-      item.name = item.name.slice(prefix.length);
-      break;
-    }
-  }
-
-  // ── Sections ──
-  for (let i = 1; i < sections.length; i++) {
-    const sec = sections[i];
-
-    // Single-line standalones
-    if (sec.length === 1) {
-      const l = sec[0];
-      if (l === 'Corrupted')   { item.corrupted = true; continue; }
-      if (l === 'Mirrored')    { item.mirrored  = true; continue; }
-      if (l === 'Unidentified'){ item.identified = false; continue; }
-      if (INFLUENCE_MAP[l])    { item.influences.push(INFLUENCE_MAP[l]); continue; }
-      if (STANDALONE.has(l) || l.startsWith('Note:')) continue;
-    }
-
-    // Property section?
-    if (sec.some(isPropertyLine)) {
-      for (const l of sec) {
-        if (l.startsWith('Item Level:')) {
-          item.itemLevel = parseInt(l.replace('Item Level:', '').trim());
-        } else if (l.startsWith('Quality')) {
-          const qt = l.match(/^Quality \(([^)]+)\)/);
-          if (qt) item.qualityType = qt[1];
-          const qv = l.match(/\+?(\d+)%/);
-          if (qv) item.quality = parseInt(qv[1]);
-        } else if (l.startsWith('Sockets:')) {
-          item.sockets = l.replace('Sockets:', '').trim();
-          parseSockets(item);
-        } else if (l.startsWith('Physical Damage:')) {
-          item._physLine = l.replace('Physical Damage:', '').trim();
-        } else if (l.startsWith('Elemental Damage:')) {
-          item._eleLine = l.replace('Elemental Damage:', '').trim();
-        } else if (l.startsWith('Attacks per Second:')) {
-          const m = l.match(/([\d.]+)/);
-          if (m) item.aps = parseFloat(m[1]);
-        } else if (l.startsWith('Critical Strike Chance:')) {
-          const m = l.match(/([\d.]+)%/);
-          if (m) item.critChance = parseFloat(m[1]);
-        } else if (l.startsWith('Armour:')) {
-          const m = l.match(/(\d+)/); if (m) item.armour = parseInt(m[1]);
-        } else if (l.startsWith('Evasion Rating:')) {
-          const m = l.match(/(\d+)/); if (m) item.evasion = parseInt(m[1]);
-        } else if (l.startsWith('Energy Shield:')) {
-          const m = l.match(/(\d+)/); if (m) item.energyShield = parseInt(m[1]);
-        } else if (l.startsWith('Ward:')) {
-          const m = l.match(/(\d+)/); if (m) item.ward = parseInt(m[1]);
-        } else if (l.startsWith('Map Tier:')) {
-          const m = l.match(/(\d+)/); if (m) item.mapTier = parseInt(m[1]);
-        } else if (l.startsWith('Chance to Block:')) {
-          const m = l.match(/(\d+)%/); if (m) item.blockChance = parseInt(m[1]);
-        } else if (l.startsWith('Stack Size:')) {
-          const m = l.match(/(\d+)\/(\d+)/);
-          if (m) item.stackSize = { current: parseInt(m[1]), max: parseInt(m[2]) };
-        } else if (l.startsWith('Level:') && !sec.some(s => s === 'Requirements:')) {
-          const m = l.match(/Level:\s*(\d+)/); if (m) item.gemLevel = parseInt(m[1]);
-        } else if (l.startsWith('Experience:')) {
-          item.gemExperience = l.replace('Experience:', '').trim();
-        } else if (l === 'Corrupted')  { item.corrupted = true; }
-        else if (l === 'Mirrored')     { item.mirrored  = true; }
-      }
-      continue;
-    }
-
-    // Non-mod section? (instructions, gem descriptions, div card text, currency prose)
-    if (isNonModSection(sec, item.itemClass)) {
-      for (const l of sec) {
-        if (l === 'Corrupted')  item.corrupted = true;
-        if (l === 'Mirrored')   item.mirrored  = true;
-      }
-      continue;
-    }
-
-    // Everything else is treated as a mod section.
-    // Pre-pass: join multi-line mods (mirrors APAT's linesToStatStrings).
-    // The game client can split a single mod across multiple lines, each with its own
-    // tag (e.g. (mutated) on Foulborn items). A continuation line starts with:
-    //   - lowercase letter (e.g. "also grant increased Maximum Life...")
-    //   - "and "/"or "/"per " conjunctions
-    //   - "while "/"when "/"during "/"if " conditionals
-    // New mods start with uppercase (not a conjunction), +/-, or digit.
-    const CONTINUATION_RE = /^(?:[a-z]|and\b|or\b|per\b|while\b|when\b|during\b|if\b)/;
-    const joined = [];
-    for (const l of sec) {
-      const stripped = stripModTag(l);
-      if (joined.length > 0 && stripped && CONTINUATION_RE.test(stripped)) {
-        // Continuation of previous mod — append to it
-        const prev = joined[joined.length - 1];
-        const prevStripped = stripModTag(prev);
-        const thisTag = l.match(MOD_TYPE_RE);
-        joined[joined.length - 1] = prevStripped + ' ' + stripped + (thisTag ? ' ' + thisTag[0].trim() : '');
-      } else {
-        joined.push(l);
-      }
-    }
-
-    for (const l of joined) {
-      if (l === 'Corrupted')   { item.corrupted = true; continue; }
-      if (l === 'Mirrored')    { item.mirrored  = true; continue; }
-      if (STANDALONE.has(l) || l.startsWith('Note:')) continue;
-
-      const type  = getModType(l);
-      const clean = stripModTag(l);
-      if (!clean) continue;
-
-      switch (type) {
-        case 'crafted':   item.craftedMods.push(clean);  break;
-        case 'fractured': item.fracturedMods.push(clean); break;
-        case 'enchant':   item.enchantMods.push(clean);  break;
-        case 'implicit':  item.implicitMods.push(clean); break;
-        default:          item.explicitMods.push(clean); break;
-      }
-    }
-  }
-
-  // ── Requires Level (second pass — find Requirements section) ──
-  for (let i = 1; i < sections.length; i++) {
-    const sec = sections[i];
-    if (sec.some(l => l === 'Requirements:')) {
-      for (const l of sec) {
-        const m = l.match(/^Level:\s*(\d+)/);
-        if (m) { item.requiresLevel = parseInt(m[1]); break; }
-      }
-      break;
-    }
-  }
-
-  // ── DPS calculation ──
-  if (item.aps) {
-    if (item._physLine) {
-      const m = item._physLine.match(/(\d+)-(\d+)/);
-      if (m) item.physDps = round1((+m[1] + +m[2]) / 2 * item.aps);
-    }
-    if (item._eleLine) {
-      let sum = 0;
-      for (const m of item._eleLine.matchAll(/(\d+)-(\d+)/g))
-        sum += (+m[1] + +m[2]) / 2;
-      if (sum > 0) item.eleDps = round1(sum * item.aps);
-    }
-    item.totalDps = round1((item.physDps || 0) + (item.eleDps || 0));
-  }
-
-  item.category = classifyItemType(item);
-  return item;
-}
-
-function classifyItemType(item) {
-  const ic = item.itemClass;
-  if (!ic) return 'unknown';
-  if (ic === 'Divination Cards' || ic === 'Divination Card') return 'card';
-  if (ic === 'Stackable Currency' || ic === 'Currency') return 'currency';
-  if (ic === 'Map Fragments' || ic === 'Misc Map Items') return 'fragment';
-  if (ic === 'Maps') return 'map';
-  if (ic.includes('Skill Gems') || ic === 'Gems' || ic === 'Support Gems' || ic === 'Active Skill Gems') return 'gem';
-  if (/Flask/i.test(ic)) return 'flask';
-  if (ic === 'Jewels' || ic === 'Jewel' || ic === 'Abyss Jewels') return 'jewel';
-  if (ic === 'Quivers') return 'quiver';
-  if (ic === 'Charms') return 'charm';
-  if (ic === 'Tinctures') return 'tincture';
-  if (ic === 'Trinkets') return 'trinket';
-  if (ic === 'Heist Contracts' || ic === 'Blueprints') return 'heist';
-  if (ic === 'Logbooks') return 'logbook';
-  if (ic === 'Sentinels') return 'sentinel';
-  if (ic === 'Memories') return 'memory';
-  if (ic === 'Sanctum Relics') return 'sanctumrelic';
-  if (WEAPON_CLASSES.has(ic)) return 'weapon';
-  if (DEFENCE_CLASSES.has(ic)) return 'armour';
-  if (['Rings','Amulets','Belts'].includes(ic)) return 'accessory';
-  return 'unknown';
-}
-
-function parseSockets(item) {
-  const groups = item.sockets.split(/\s+/);
-  let total = 0, maxLink = 0;
-  for (const g of groups) {
-    const s = g.split('-');
-    total += s.length;
-    if (s.length > maxLink) maxLink = s.length;
-  }
-  item.socketCount = total;
-  item.linkCount   = maxLink;
-}
-
-function round1(n) { return Math.round(n * 10) / 10; }
-
-// ── Stat Matching ─────────────────────────────────────────────────────────────
-function normMod(text) {
-  return text
-    .replace(/[+\-]?\d+(\.\d+)?/g, '#')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .toLowerCase();
-}
-
-// Item classes where defence mods (Armour/Evasion/ES/Ward) are local
-const DEFENCE_CLASSES = new Set([
-  'Body Armours','Helmets','Gloves','Boots','Shields',
-]);
-// Item classes where weapon mods (damage/crit/speed) are local
-const WEAPON_CLASSES = new Set([
-  'Claws','Daggers','Rune Daggers','Wands',
-  'One Hand Swords','Thrusting One Hand Swords','One Hand Axes','One Hand Maces',
-  'Bows','Staves','Warstaves','Two Hand Swords','Two Hand Axes','Two Hand Maces',
-  'Sceptres','Flails','Spears','Crossbows',
-]);
-// Patterns that become local on defence items — derived from actual trade API "(Local)" stat entries
-// Covers both PoE 1 (hybrid mods, +# prefix) and PoE 2 (block chance, no + prefix)
-const LOCAL_DEFENCE_RE = new RegExp([
-  'increased Armour$',
-  'increased Evasion Rating$',
-  'increased Energy Shield$',
-  'increased Block chance$',
-  'increased Armour and Evasion$',
-  'increased Armour and Energy Shield$',
-  'increased Evasion and Energy Shield$',
-  'increased Armour, Evasion and Energy Shield$',
-  '\\bto Armour$',
-  '\\bto Evasion Rating$',
-  '\\bto maximum Energy Shield$',
-].join('|'), 'i');
-
-// Patterns that become local on weapons — derived from actual trade API "(Local)" stat entries
-// Covers both PoE 1 (adds damage, leech, poison) and PoE 2 (attack speed, accuracy)
-const LOCAL_WEAPON_RE = new RegExp([
-  'increased Attack Speed$',
-  'Adds \\d.+(?:Physical|Lightning|Cold|Fire|Chaos) Damage$',
-  '\\bto Accuracy Rating$',
-  'Physical Attack Damage Leeched as Life',
-  'Physical Attack Damage Leeched as Mana',
-  'chance to Poison on Hit$',
-  '^Culling Strike$',
-].join('|'), 'i');
-
-function isLocalMod(modText, itemClass) {
-  if (DEFENCE_CLASSES.has(itemClass) && LOCAL_DEFENCE_RE.test(modText)) return true;
-  if (WEAPON_CLASSES.has(itemClass) && LOCAL_WEAPON_RE.test(modText)) return true;
-  return false;
-}
-
-// ── Trade-inverted stats (from APAT stats.ndjson) ────────────────────────────
-// These ~100 stats use reversed sign convention in the trade API:
-// the API expects POSITIVE values for "reduced/less" and NEGATIVE for "increased/more".
-// When combined with our direction swap (negated flag), the inversion cancels out:
-//   shouldNegateAndSwap = negated XOR inverted
-// Source: https://github.com/SnosMe/awakened-poe-trade renderer/public/data/en/stats.ndjson
-const TRADE_INVERTED_STAT_NUMS = new Set([
-  // Action Speed
-  '2878959938','2251857767','1829486532',
-  // Less damage/duration
-  '414991155','4181057577','67637087','2733459550','3796523155','3298440988',
-  '1715495976','1237693206',
-  // Damage Reflection
-  '2510655429','603134774','1574578643','2467518140','2255585376','3991837781',
-  '3829555156','2173565521','648344494','2195698019','4260371388',
-  // Reduced Damage Taken
-  '3001376862','2960683632','3762784591','3303114033','1101403182','1425651005',
-  '3309607228','1686913105','983989924','3859593448','1276918229','248838155',
-  '3158958938','1165847826','1869678332',
-  // Reduced Effect of Ailments/Curses
-  '1478653032','2434101731','3407849389','4265534424','3801067695','1152934561',
-  '433740375','1343931641',
-  // Reduced Costs
-  '2701327257','644456512','116232170','2859471749','2969128501','262301496',
-  '3293275880','73272763','180240697','1274125114','3671920033','1116269888',
-  // Reduced Other
-  '269590092','4147897060','2102212273','1195367742','76848920','1550221644',
-  '2543931078','2576412389','4041805509','1186934478','1912660783',
-  // Reservation Efficiency (inverted wording)
-  '1471600638','3289633055',
-  // Enemy Debuffs
-  '3231424461','1773891268','4107150355','3134790305','3903907406','607839150',
-  '3169825297','3407071583','2570471069',
-  // Golems/Minions
-  '478698670','2861397339','3730242558','1583498502',
-  // Map/Atlas Mods
-  '3737068014','2549889921','2312028586','272758639','4181072906','3729221884',
-  '3957379603',
-  // Miscellaneous
-  '207635700','2443132097','902947445','3281809492','3577248251','2160417795',
-  '129035625','68410701','3544527742','1039536123',
-]);
-
-function isTradeInverted(statId) {
-  if (!statId) return false;
-  const m = statId.match(/stat_(\d+)/);
-  return m ? TRADE_INVERTED_STAT_NUMS.has(m[1]) : false;
-}
-
-// ── Select strategy: prefer stat by item category (mirrors APAT's StatGroup select) ──
-// Maps item class categories to stat selection preferences.
-// When multiple stats share the same text, prefer the one matching the item's category.
-const ITEM_CATEGORY_MAP = {
-  ARMOUR: DEFENCE_CLASSES,
-  WEAPON: WEAPON_CLASSES,
-};
-
-// Match an item mod against an option-type stat (where # is a dropdown, not a number).
-// Returns the option id (integer) on success, or null.
-// Constructs expected full text per option and compares, with flexible article normalization
-// to handle differences like "the matching modifier" (in-game) vs "matching modifier" (stats DB).
-function matchOptionValue(modText, stat) {
-  if (!stat.options || !stat.options.length) return null;
-  const hashIdx = stat.text.indexOf('#');
-  if (hashIdx === -1) return null;
-  const prefix   = stat.text.slice(0, hashIdx).toLowerCase();
-  const suffix   = stat.text.slice(hashIdx + 1).toLowerCase();
-  const modLower = modText.toLowerCase();
-  if (!modLower.startsWith(prefix)) return null;
-
-  // Try each option: construct expected text and compare
-  for (const opt of stat.options) {
-    const expected = prefix + opt.text.toLowerCase() + suffix;
-    if (modLower === expected) return opt.id;
-  }
-  // Flexible match: normalize articles/whitespace
-  const normFlex = s => s.replace(/\b(the|a|an)\b/gi, '').replace(/\s+/g, ' ').trim();
-  const modNorm = normFlex(modLower);
-  for (const opt of stat.options) {
-    const expected = normFlex(prefix + opt.text.toLowerCase() + suffix);
-    if (modNorm === expected) return opt.id;
-  }
-  return null;
-}
-
-// The trade API uses a single stat for both directions (e.g. "#% increased X" covers
-// both "increased" and "reduced"). "reduced" = negative value of "increased", same for
-// "less" vs "more". This mirrors how APAT handles it.
-const DIRECTION_SWAPS = [
-  [/\breduced\b/i,    'increased'],
-  [/\bless\b/i,       'more'],
-];
-function swapDirection(text) {
-  let swapped = false;
-  let out = text;
-  for (const [re, replacement] of DIRECTION_SWAPS) {
-    if (re.test(out)) {
-      out = out.replace(re, replacement);
-      swapped = true;
-    }
-  }
-  return swapped ? out : null;
-}
-
-function findStat(modText, preferType = 'explicit', itemClass = '') {
-  if (!statsDb.length) return null;
-  const norm       = normMod(modText);
-  const normPlus   = '+' + norm;
-  const normNoSign = norm.replace(/^[+\-]#?\s*/, '').trim();
-  const local      = isLocalMod(modText, itemClass);
-
-  // Build all "(Local)" variants to try — the API uses "+# to Armour (Local)" etc.
-  const localVariants = local ? [
-    norm + ' (local)',
-    normPlus + ' (local)',
-    '+' + normNoSign + ' (local)',
-    normNoSign + ' (local)',
-  ] : [];
-
-  // Direction-swapped variants (reduced→increased, less→more)
-  const swappedMod = swapDirection(modText);
-  let swNorm, swNormPlus, swNormNoSign, swLocalVariants;
-  if (swappedMod) {
-    swNorm       = normMod(swappedMod);
-    swNormPlus   = '+' + swNorm;
-    swNormNoSign = swNorm.replace(/^[+\-]#?\s*/, '').trim();
-    swLocalVariants = local ? [
-      swNorm + ' (local)',
-      swNormPlus + ' (local)',
-      '+' + swNormNoSign + ' (local)',
-      swNormNoSign + ' (local)',
-    ] : [];
-  }
-
-  // Search order: preferred type first, then other useful types
-  const order = [preferType, 'explicit', 'fractured', 'crafted', 'implicit', 'enchant']
-    .filter((v, i, a) => a.indexOf(v) === i);
-
-  // Helper: collect ALL stats matching a predicate (for duplicate stat IDs with same text).
-  // Uses APAT's "select" strategy: when multiple stats match, prefer the one whose
-  // trade ID corresponds to the item's category (armour/weapon), fall back to the rest.
-  // Returns a shallow copy so we don't mutate statsDb entries.
-  function collectAll(matchFn, extraProps) {
-    const matches = [];
-    for (const type of order) {
-      for (const s of statsDb) {
-        if (s.type !== type) continue;
-        if (matchFn(s)) matches.push(s);
-      }
-      if (matches.length) break; // stop at first type that has matches
-    }
-    if (!matches.length) return null;
-
-    // Select strategy: if multiple matches and we know the item category,
-    // prefer the local stat for armour/weapon items, non-local for others.
-    let primary = matches[0];
-    if (matches.length > 1 && itemClass) {
-      const isArmour = DEFENCE_CLASSES.has(itemClass);
-      const isWeapon = WEAPON_CLASSES.has(itemClass);
-      const localMatch    = matches.find(s => s.text.toLowerCase().includes('(local)'));
-      const nonLocalMatch = matches.find(s => !s.text.toLowerCase().includes('(local)'));
-      if ((isArmour || isWeapon) && localMatch) primary = localMatch;
-      else if (nonLocalMatch) primary = nonLocalMatch;
-    }
-
-    const result = { ...primary, ...extraProps };
-    // Add trade.inverted flag
-    if (isTradeInverted(result.id)) result.inverted = true;
-    // Store alternates (other matching stat IDs)
-    const others = matches.filter(s => s.id !== primary.id);
-    if (others.length) {
-      result.alternates = others.map(s => s.id);
-    }
-    return result;
-  }
-
-  // For local mods: try the "(Local)" variant first, then fall back to plain
-  if (local) {
-    const result = collectAll(s => localVariants.some(v => s.text.toLowerCase() === v));
-    if (result) return result;
-    // Try direction-swapped local variants
-    if (swLocalVariants) {
-      const swResult = collectAll(s => swLocalVariants.some(v => s.text.toLowerCase() === v), { negated: true });
-      if (swResult) return swResult;
-    }
-  }
-
-  // Exact normalized match — collect all duplicates
-  const exactResult = collectAll(s => {
-    const st = s.text.toLowerCase();
-    return st === norm || st === normPlus || st === normNoSign;
-  });
-  if (exactResult) return exactResult;
-
-  // Try direction-swapped match (reduced→increased, less→more)
-  if (swappedMod) {
-    const swResult = collectAll(s => {
-      const st = s.text.toLowerCase();
-      return st === swNorm || st === swNormPlus || st === swNormNoSign;
-    }, { negated: true });
-    if (swResult) return swResult;
-  }
-
-  // Option-type stat match (e.g. "Added Small Passive Skills grant: #" where # is a dropdown)
-  for (const type of order) {
-    for (const s of statsDb) {
-      if (s.type !== type || !s.options) continue;
-      const optId = matchOptionValue(modText, s);
-      if (optId !== null) return { ...s, optionId: optId };
-    }
-  }
-
-  // Fuzzy fallback — only within preferred + explicit, skip (Local) entries for non-local mods
-  const words = normNoSign.replace(/[#%]/g, '').trim().split(/\s+/).filter(w => w.length > 2);
-  if (!words.length) return null;
-  // For cluster jewel enchants, keep "grant:" vs "also grant:" mutually exclusive
-  const hasAlsoGrant = normNoSign.includes('also grant:');
-  const hasGrantOnly = normNoSign.includes('grant:') && !hasAlsoGrant;
-  const pool = statsDb.filter(s => {
-    if (s.type !== preferType && s.type !== 'explicit') return false;
-    if (!local && s.text.toLowerCase().includes('(local)')) return false;
-    const st = s.text.toLowerCase();
-    if (hasGrantOnly  && st.includes('also grant:')) return false;
-    if (hasAlsoGrant  && st.includes('grant:') && !st.includes('also grant:')) return false;
-    return true;
-  });
-  let best = null, bestRatio = 0;
-  for (const s of pool) {
-    const st = s.text.toLowerCase();
-    let hits = 0;
-    for (const w of words) if (st.includes(w)) hits++;
-    const ratio = hits / words.length;
-    if (ratio > bestRatio && ratio >= 0.75) { bestRatio = ratio; best = s; }
-  }
-  return best;
+// ── Parser (loaded from parser.js) ────────────────────────────────────────────
+const { parseItemText, findStat: _findStat, extractModValue,
+        convertStashItem, CATEGORY_MAP } = window.ItemParser;
+// Wrap findStat to inject statsDb automatically
+function findStat(modText, preferType, itemClass) {
+  return _findStat(modText, preferType, itemClass, statsDb);
 }
 
 // ── Render Parsed Item ────────────────────────────────────────────────────────
@@ -1325,16 +729,6 @@ function renderSockets(s) {
     const cls = { R:'sock-r', G:'sock-g', B:'sock-b', W:'sock-w' }[c.toUpperCase()] || '';
     return `<span class="sock ${cls}">${c}</span>`;
   }).join('');
-}
-
-function extractModValue(text) {
-  const rng = text.match(/(\d+)\s+to\s+(\d+)/i);
-  if (rng && /^adds\b/i.test(text))
-    return { min: +rng[1], max: +rng[2], isRange: true };
-  // Capture sign so "-1 to Maximum Power Charges" gives min: -1
-  const single = text.match(/([+\-]?\d+(?:\.\d+)?)/);
-  if (single) return { min: parseFloat(single[1]), max: null, isRange: false };
-  return null;
 }
 
 function esc(s) {
@@ -1875,4 +1269,311 @@ function appendResults(results) {
 
     resultsList.appendChild(card);
   }
+}
+
+// ── Stash Check ──────────────────────────────────────────────────────────────
+
+$('stash-connect-btn').addEventListener('click', handleStashConnect);
+$('stash-load-btn').addEventListener('click', handleStashLoad);
+
+let stashAbortController = null;
+
+async function stashFetch(path) {
+  const sessId = $('stash-poesessid').value.trim();
+  if (!sessId) throw new Error('Enter your POESESSID first');
+  const res = await fetch(PROXY + path, {
+    headers: { 'X-POESESSID': sessId },
+  });
+  if (res.status === 403) throw new Error('Invalid POESESSID or session expired');
+  if (res.status === 429) throw new Error(`Rate limited. Retry in ${res.headers.get('Retry-After') || 60}s`);
+  if (!res.ok) throw new Error(`Stash API error (${res.status})`);
+  return res.json();
+}
+
+async function handleStashConnect() {
+  const status = $('stash-connect-status');
+  const tabSection = $('stash-tab-section');
+  status.textContent = 'Connecting…';
+  status.className = 'search-status';
+  tabSection.style.display = 'none';
+
+  try {
+    const league = $('league').value;
+    const data = await stashFetch(
+      `/character-window/get-stash-items?league=${encodeURIComponent(league)}&tabs=1&tabIndex=0`
+    );
+
+    if (!data.tabs || !data.tabs.length) {
+      status.textContent = 'No stash tabs found';
+      status.className = 'search-status error';
+      return;
+    }
+
+    // Populate tab dropdown
+    const select = $('stash-tab-select');
+    select.innerHTML = '';
+    for (const tab of data.tabs) {
+      const opt = document.createElement('option');
+      opt.value = tab.i;
+      opt.textContent = `${tab.n} (${tab.type})`;
+      select.appendChild(opt);
+    }
+
+    tabSection.style.display = 'block';
+    status.textContent = `Connected — ${data.tabs.length} tabs`;
+    status.className = 'search-status';
+
+    // Save to sessionStorage
+    sessionStorage.setItem('poesessid', $('stash-poesessid').value.trim());
+  } catch (e) {
+    status.textContent = e.message;
+    status.className = 'search-status error';
+  }
+}
+
+// Build a simplified trade query for auto-pricing (no DOM dependencies)
+function buildStashPriceQuery(item) {
+  const listing = getListingFilter();
+  const q = {
+    status: { option: listing.status },
+    stats:  [{ type: 'and', filters: [] }],
+    filters: {},
+  };
+
+  if (item.rarity === 'unique' && item.name) {
+    q.name = item.name;
+    q.type = item.baseType;
+  } else if (item.baseType) {
+    q.type = item.baseType;
+    const rarityOption = item.rarity === 'magic' ? 'magic' : (item.rarity === 'normal' ? 'normal' : 'nonunique');
+    q.filters.type_filters = { disabled: false, filters: { rarity: { option: rarityOption } } };
+  }
+
+  return q;
+}
+
+function openStashItemInSearch(item) {
+  console.log('Stash item (converted):', item);
+  console.log('explicitMods:', item.explicitMods);
+  console.log('implicitMods:', item.implicitMods);
+  // Switch to item search mode and display the stash item with full mods
+  switchMode('search');
+  parsedData = item;
+  renderParsedItem(item);
+  attachDynamicListeners();
+  parsedSection.style.display  = 'block';
+  resultsSection.style.display = 'none';
+  placeholder.style.display    = 'flex';
+  searchStatus.textContent  = '';
+  searchStatus.className    = 'search-status';
+  // Put a summary in the input box so user knows what's loaded
+  const lines = [];
+  if (item.rarity) lines.push(`Rarity: ${item.rarity.charAt(0).toUpperCase() + item.rarity.slice(1)}`);
+  if (item.name) lines.push(item.name);
+  if (item.baseType) lines.push(item.baseType);
+  itemInput.value = lines.join('\n') + '\n(loaded from stash)';
+  // Auto-trigger the search so results appear on the right
+  handleSearch();
+}
+
+// Fetch with automatic 429 retry + adaptive pacing from rate limit headers.
+// The trade API returns headers like: x-rate-limit-ip: 6:5:60,12:30:60
+// meaning 6 hits per 5s window OR 12 hits per 30s window (within 60s policy).
+// x-rate-limit-ip-state: 4:5:0,8:30:0 = current usage in each window.
+// We read the state to compute the safest delay before the next request.
+let _stashNextRequestAt = 0;
+
+async function stashRateLimitedFetch(path, opts, progressEl, _retries = 0) {
+  // Wait until our pacing allows the next request
+  const now = Date.now();
+  if (_stashNextRequestAt > now) {
+    const waitMs = _stashNextRequestAt - now;
+    if (progressEl) progressEl.textContent = progressEl.textContent.replace(/— .*/, '') + `— pacing ${Math.ceil(waitMs / 1000)}s…`;
+    await new Promise(r => setTimeout(r, waitMs));
+  }
+
+  const res = await apiFetch(path, opts);
+
+  if (res.status === 429) {
+    if (_retries >= 3) throw new Error('Rate limited — try again later');
+    const retryAfter = res.headers.get('Retry-After');
+    console.log('429 Retry-After raw:', retryAfter, 'retry #', _retries + 1);
+    const parsed = parseInt(retryAfter);
+    // Use actual Retry-After if valid, otherwise escalating backoff: 5s, 15s, 30s
+    const fallbacks = [5, 15, 30];
+    const wait = (parsed > 0 && parsed <= 120) ? parsed : fallbacks[_retries];
+    if (progressEl) progressEl.textContent = `Rate limited — waiting ${wait}s (retry ${_retries + 1}/3)…`;
+    await new Promise(r => setTimeout(r, wait * 1000));
+    return stashRateLimitedFetch(path, opts, progressEl, _retries + 1);
+  }
+
+  // Parse rate limit state to compute delay for next request.
+  // Look for x-rate-limit-ip and x-rate-limit-ip-state (or account variants).
+  const rules = res.headers.get('x-rate-limit-ip') || res.headers.get('x-rate-limit-account');
+  const state = res.headers.get('x-rate-limit-ip-state') || res.headers.get('x-rate-limit-account-state');
+
+  if (rules && state) {
+    // rules: "6:5:60,12:30:60"  state: "4:5:0,8:30:0"
+    const ruleParts = rules.split(',');
+    const stateParts = state.split(',');
+    let maxDelay = 1500; // minimum 1.5s between requests (safe for bulk)
+
+    for (let r = 0; r < ruleParts.length; r++) {
+      const [maxHits, period] = ruleParts[r].split(':').map(Number);
+      const [curHits]         = (stateParts[r] || '').split(':').map(Number);
+      if (maxHits && period && curHits !== undefined) {
+        const remaining = maxHits - curHits - 1; // -1 for safety margin
+        if (remaining <= 1) {
+          // Near the limit for this window — wait proportionally
+          maxDelay = Math.max(maxDelay, (period / maxHits) * 1000 * 1.2);
+        }
+      }
+    }
+    _stashNextRequestAt = Date.now() + maxDelay;
+  } else {
+    // No rate limit headers visible — use conservative fixed delay
+    _stashNextRequestAt = Date.now() + 2000;
+  }
+
+  return res;
+}
+
+async function handleStashLoad() {
+  const loadStatus = $('stash-load-status');
+  const progressDiv = $('stash-progress');
+  const progressFill = $('stash-progress-fill');
+  const progressText = $('stash-progress-text');
+  const resultsDiv = $('stash-results');
+  const resultsBody = $('stash-results-body');
+
+  // Cancel previous run if any
+  if (stashAbortController) stashAbortController.abort();
+  stashAbortController = new AbortController();
+  const signal = stashAbortController.signal;
+
+  loadStatus.textContent = 'Loading stash tab…';
+  loadStatus.className = 'search-status';
+  progressDiv.style.display = 'none';
+  resultsDiv.style.display = 'none';
+  resultsBody.innerHTML = '';
+
+  try {
+    const league = $('league').value;
+    const tabIndex = $('stash-tab-select').value;
+
+    const data = await stashFetch(
+      `/character-window/get-stash-items?league=${encodeURIComponent(league)}&tabs=0&tabIndex=${tabIndex}`
+    );
+
+    const items = data.items || [];
+    if (!items.length) {
+      loadStatus.textContent = 'Tab is empty';
+      return;
+    }
+
+    // Convert all items — log raw JSON for debugging
+    console.log('Stash raw items:', items);
+    const converted = items.map(convertStashItem);
+
+    // Filter to price-checkable items, tag skip reasons
+    const priceable = [];
+    const skippedItems = [];
+    for (const item of converted) {
+      if (!item.identified)                              skippedItems.push({ item, reason: 'unidentified' });
+      else if (item.category === 'currency')             skippedItems.push({ item, reason: 'currency' });
+      else if (item.category === 'gem')                  skippedItems.push({ item, reason: 'gem' });
+      else if (item.category === 'card')                 skippedItems.push({ item, reason: 'div card' });
+      else if (item.rarity === 'normal' && item.category !== 'map') skippedItems.push({ item, reason: 'normal item' });
+      else priceable.push(item);
+    }
+
+    loadStatus.textContent = `${priceable.length} items to price check${skippedItems.length ? ` (${skippedItems.length} skipped)` : ''}`;
+    progressDiv.style.display = 'block';
+    resultsDiv.style.display = 'block';
+
+    // Add skipped items as grey rows with reason
+    for (const { item, reason } of skippedItems) {
+      const row = document.createElement('tr');
+      row.className = 'stash-row-clickable';
+      row.innerHTML = `
+        <td>${item._stashIcon ? `<img class="stash-item-icon" src="${esc(item._stashIcon)}">` : ''}
+            <span class="stash-skip">${esc(item.name || item.baseType)}</span></td>
+        <td class="stash-type">${esc(item.category)}</td>
+        <td class="stash-ilvl">${item.itemLevel || '—'}</td>
+        <td class="stash-price-none">skipped (${esc(reason)})</td>`;
+      row.addEventListener('click', () => openStashItemInSearch(item));
+      resultsBody.appendChild(row);
+    }
+
+    // Price check each item with rate limiting
+    for (let i = 0; i < priceable.length; i++) {
+      if (signal.aborted) return;
+
+      const item = priceable[i];
+      const pct = Math.round(((i + 1) / priceable.length) * 100);
+      progressFill.style.width = pct + '%';
+      progressText.textContent = `Checking ${i + 1}/${priceable.length}: ${item.name || item.baseType}`;
+
+      const row = document.createElement('tr');
+      row.className = 'stash-row-clickable';
+      const nameClass = `stash-item-name rarity-${item.rarity}`;
+      const displayName = item.name ? `${item.name} — ${item.baseType}` : item.baseType;
+
+      try {
+        const query = buildStashPriceQuery(item);
+        const payload = { query, sort: { price: 'asc' } };
+
+        const res = await stashRateLimitedFetch(`/search/${encodeURIComponent(league)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+          signal,
+        }, progressText);
+
+        const searchData = await res.json();
+        let priceHtml = '<span class="stash-price-none">no listings</span>';
+
+        if (searchData.result && searchData.result.length > 0) {
+          const fetchIds = searchData.result.slice(0, 1).join(',');
+          const fetchRes = await stashRateLimitedFetch(`/fetch/${fetchIds}?query=${searchData.id}`, { signal }, progressText);
+          const fetchData = await fetchRes.json();
+
+          if (fetchData.result && fetchData.result[0]?.listing?.price) {
+            const p = fetchData.result[0].listing.price;
+            priceHtml = `<span class="stash-price">${esc(String(p.amount))} ${esc(p.currency)}</span>`;
+          }
+        }
+
+        row.innerHTML = `
+          <td>${item._stashIcon ? `<img class="stash-item-icon" src="${esc(item._stashIcon)}">` : ''}
+              <span class="${nameClass}">${esc(displayName)}</span></td>
+          <td class="stash-type">${esc(item.category)}</td>
+          <td class="stash-ilvl">${item.itemLevel || '—'}</td>
+          <td>${priceHtml}</td>`;
+      } catch (e) {
+        if (signal.aborted) return;
+        row.innerHTML = `
+          <td>${item._stashIcon ? `<img class="stash-item-icon" src="${esc(item._stashIcon)}">` : ''}
+              <span class="${nameClass}">${esc(displayName)}</span></td>
+          <td class="stash-type">${esc(item.category)}</td>
+          <td class="stash-ilvl">${item.itemLevel || '—'}</td>
+          <td class="stash-price-none">${esc(e.message)}</td>`;
+      }
+
+      row.addEventListener('click', () => openStashItemInSearch(item));
+      resultsBody.appendChild(row);
+    }
+
+    progressText.textContent = `Done — ${priceable.length} items checked`;
+    loadStatus.textContent = 'Complete';
+  } catch (e) {
+    if (e.name === 'AbortError') return;
+    loadStatus.textContent = e.message;
+    loadStatus.className = 'search-status error';
+  }
+}
+
+// Restore POESESSID from sessionStorage on load
+if (sessionStorage.getItem('poesessid')) {
+  $('stash-poesessid').value = sessionStorage.getItem('poesessid');
 }
