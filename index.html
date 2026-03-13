@@ -18,14 +18,15 @@
         <label for="league">League</label>
         <select id="league"><option value="Standard">Standard</option></select>
       </div>
-      <label class="check-label" title="Only show listings from online players">
-        <input type="checkbox" id="online-only">
-        <span>Online only</span>
-      </label>
-      <label class="check-label" title="Only show listings with a fixed buyout price">
-        <input type="checkbox" id="buyout-only" checked>
-        <span>Buyout only</span>
-      </label>
+      <div class="header-field">
+        <label for="listing-type">Listing</label>
+        <select id="listing-type">
+          <option value="securable" selected>Instant Buyout</option>
+          <option value="onlineleague">Online in League</option>
+          <option value="online">Online</option>
+          <option value="any">Any</option>
+        </select>
+      </div>
     </div>
   </header>
 

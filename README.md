@@ -67,8 +67,7 @@ Switch to **Bulk Exchange** mode using the toggle at the top of the left panel. 
 |---|---|
 | **PoE 1 / PoE 2** buttons | Switch between game versions (different APIs and leagues) |
 | **League** dropdown | Select which league to search in (auto-populated) |
-| **Online only** checkbox | Only show items from players currently online |
-| **Buyout only** checkbox | Only show listings with a fixed price (checked by default) |
+| **Listing** dropdown | Filter by listing type: Instant Buyout and In Person (default), Instant Buyout, In Person (Online in League), In Person (Online), or Any |
 | **Item Search / Bulk Exchange** toggle | Switch between item search and currency exchange modes |
 | **Open in Trade Site** button | Opens the same search on the official pathofexile.com trade site |
 | **View on trade site** link | Appears after searching — direct link to your search results on the official site |

@@ -7,7 +7,12 @@ const DIRECT = {
 
 let game      = 'poe1';
 let useProxy  = false;
-const buyoutOnly = () => document.getElementById('buyout-only')?.checked;
+// Listing type dropdown → status option for API queries
+function getListingFilter() {
+  const val = document.getElementById('listing-type')?.value || 'securable';
+  // Dropdown values map directly to the trade API status options
+  return { status: val };
+}
 let statsDb   = [];          // [{id, text, type}]
 let parsedData = null;
 let lastSearchId  = null;
@@ -28,7 +33,6 @@ const resultsList    = $('results-list');
 const resultCount    = $('result-count');
 const leagueSelect   = $('league');
 const corsWarning    = $('cors-warning');
-const onlineOnly     = $('online-only');
 const loadMoreBtn    = $('load-more-btn');
 const tradeLink      = $('trade-link');
 const placeholder    = $('results-placeholder');
@@ -181,7 +185,7 @@ async function handleExchangeSearch() {
     const league  = leagueSelect.value;
     const payload = {
       exchange: {
-        status: { option: onlineOnly.checked ? 'online' : 'any' },
+        status: { option: getListingFilter().status },
         have: [have],
         want: [want],
       }
@@ -480,11 +484,31 @@ function parseItemText(text) {
       /^[+\-]?\d/.test(l) ||
       /\b(increased|reduced|more|less|adds|to|gain|cannot|regenerate|grants)\b/i.test(l) ||
       l.includes('(implicit)') || l.includes('(crafted)') ||
-      l.includes('(fractured)') || l.includes('(enchant)')
+      l.includes('(fractured)') || l.includes('(enchant)') ||
+      l.includes('(mutated)')
     );
 
     if (looksLikeMods) {
+      // Pre-pass: join multi-line mods split by (mutated) tags.
+      // The game client appends (mutated) to every line of a Foulborn mod,
+      // even when the mod spans multiple lines. A continuation line starts
+      // with lowercase after stripping its tag (new mods start uppercase/+/-/digit).
+      const joined = [];
       for (const l of sec) {
+        const stripped = stripModTag(l);
+        if (joined.length > 0 && stripped && /^[a-z]/.test(stripped)) {
+          // Continuation of previous mod — append to it
+          const prev = joined[joined.length - 1];
+          // Re-strip the previous line's tag, append this stripped text, keep THIS line's tag
+          const prevStripped = stripModTag(prev);
+          const thisTag = l.match(MOD_TYPE_RE);
+          joined[joined.length - 1] = prevStripped + ' ' + stripped + (thisTag ? ' ' + thisTag[0].trim() : '');
+        } else {
+          joined.push(l);
+        }
+      }
+
+      for (const l of joined) {
         if (l === 'Corrupted')   { item.corrupted = true; continue; }
         if (l === 'Mirrored')    { item.mirrored  = true; continue; }
         if (STANDALONE.has(l) || l.startsWith('Note:')) continue;
@@ -674,24 +698,37 @@ function findStat(modText, preferType = 'explicit', itemClass = '') {
   const order = [preferType, 'explicit', 'fractured', 'crafted', 'implicit', 'enchant']
     .filter((v, i, a) => a.indexOf(v) === i);
 
-  // For local mods: try the "(Local)" variant first, then fall back to plain
-  if (local) {
+  // Helper: collect ALL stats matching a predicate (for duplicate stat IDs with same text)
+  function collectAll(matchFn) {
+    const matches = [];
     for (const type of order) {
       for (const s of statsDb) {
         if (s.type !== type) continue;
-        const st = s.text.toLowerCase();
-        if (localVariants.some(v => st === v)) return s;
+        if (matchFn(s)) matches.push(s);
       }
+      if (matches.length) break; // stop at first type that has matches
     }
+    if (!matches.length) return null;
+    const primary = matches[0];
+    if (matches.length > 1) {
+      // Attach alternate stat IDs so query can try all of them
+      primary.alternates = matches.slice(1).map(s => s.id);
+    }
+    return primary;
   }
 
-  for (const type of order) {
-    for (const s of statsDb) {
-      if (s.type !== type) continue;
-      const st = s.text.toLowerCase();
-      if (st === norm || st === normPlus || st === normNoSign) return s;
-    }
+  // For local mods: try the "(Local)" variant first, then fall back to plain
+  if (local) {
+    const result = collectAll(s => localVariants.some(v => s.text.toLowerCase() === v));
+    if (result) return result;
   }
+
+  // Exact normalized match — collect all duplicates
+  const exactResult = collectAll(s => {
+    const st = s.text.toLowerCase();
+    return st === norm || st === normPlus || st === normNoSign;
+  });
+  if (exactResult) return exactResult;
 
   // Option-type stat match (e.g. "Added Small Passive Skills grant: #" where # is a dropdown)
   for (const type of order) {
@@ -1074,11 +1111,13 @@ function modRow(id, modText, stat, type) {
   const val  = isOption ? null : extractModValue(modText);
   const ok   = !!stat;
   const cls  = `mod-type-${type}`;
+  const altIds = stat?.alternates || [];
   const indicator = ok
-    ? `<span class="match-ok" title="${esc(stat.id)}">✓</span>`
+    ? `<span class="match-ok" title="${esc(stat.id)}${altIds.length ? ' (+' + altIds.length + ' alternates)' : ''}">✓</span>`
     : `<span class="match-fail" title="No stat match — skipped">✗</span>`;
   const optAttr = isOption ? ` data-option-id="${esc(String(stat.optionId))}"` : '';
-  let h = `<div class="toggle-row ${cls}" data-stat-id="${ok ? esc(stat.id) : ''}"${optAttr}>`;
+  const altAttr = altIds.length ? ` data-alt-ids="${esc(altIds.join(','))}"` : '';
+  let h = `<div class="toggle-row ${cls}" data-stat-id="${ok ? esc(stat.id) : ''}"${optAttr}${altAttr}>`;
   h += `<input type="checkbox" id="mod-${id}" ${ok ? 'checked' : 'disabled'} data-mod="${esc(modText)}">`;
   h += `<label for="mod-${id}">${esc(modText)}</label>`;
   h += indicator;
@@ -1126,8 +1165,9 @@ function buildQuery(item) {
     const min = parseInt($('count-min')?.value);
     if (!isNaN(min)) mainGroup.value = { min };
   }
+  const listing = getListingFilter();
   const q = {
-    status: { option: onlineOnly.checked ? 'online' : 'any' },
+    status: { option: listing.status },
     stats:  [mainGroup],
     filters: {},
   };
@@ -1160,14 +1200,6 @@ function buildQuery(item) {
     const rarityOption = isMagic ? 'magic' : (item.rarity === 'normal' ? 'normal' : 'nonunique');
     q.filters.type_filters = q.filters.type_filters || { disabled: false, filters: {} };
     q.filters.type_filters.filters.rarity = { option: rarityOption };
-  }
-
-  // Buyout only (priced listings)
-  if (buyoutOnly()) {
-    q.filters.trade_filters = {
-      disabled: false,
-      filters: { sale_type: { option: 'priced' } },
-    };
   }
 
   // Synthesised
@@ -1216,7 +1248,8 @@ function buildQuery(item) {
   if ($('toggle-ilvl')?.checked) {
     const min = parseInt($('ilvl-min')?.value);
     if (!isNaN(min)) {
-      q.filters.misc_filters = { disabled: false, filters: { ilvl: { min } } };
+      (q.filters.misc_filters = q.filters.misc_filters || { disabled: false, filters: {} })
+        .filters.ilvl = { min };
     }
   }
 
@@ -1318,7 +1351,7 @@ function buildQuery(item) {
     }
   }
 
-  // Mods helper
+  // Mods helper — handles duplicate stat IDs by creating count groups
   function addMods(prefix) {
     const container = document.querySelectorAll(`[id^="mod-${prefix}-"]`);
     for (const chk of container) {
@@ -1327,17 +1360,29 @@ function buildQuery(item) {
       const statId = row?.dataset.statId;
       if (!statId) continue;
       const suffix   = chk.id.replace(`mod-${prefix}-`, '');
-      const filter   = { id: statId, value: {}, disabled: false };
+      const value    = {};
       const optionId = row.dataset.optionId;
       if (optionId !== undefined && optionId !== '') {
-        filter.value.option = parseInt(optionId);
+        value.option = parseInt(optionId);
       } else {
         const minEl = $(`mod-min-${prefix}-${suffix}`);
         const maxEl = $(`mod-max-${prefix}-${suffix}`);
-        if (minEl && minEl.value !== '') filter.value.min = parseFloat(minEl.value);
-        if (maxEl && maxEl.value !== '') filter.value.max = parseFloat(maxEl.value);
+        if (minEl && minEl.value !== '') value.min = parseFloat(minEl.value);
+        if (maxEl && maxEl.value !== '') value.max = parseFloat(maxEl.value);
       }
-      mainGroup.filters.push(filter);
+      const altIdsStr = row.dataset.altIds;
+      if (altIdsStr) {
+        // Multiple stat IDs match this mod — use a count group with min:1
+        // so the API tries all of them (only one will be correct)
+        const altGroup = { type: 'count', value: { min: 1 }, filters: [] };
+        altGroup.filters.push({ id: statId, value: { ...value }, disabled: false });
+        for (const altId of altIdsStr.split(',')) {
+          altGroup.filters.push({ id: altId.trim(), value: { ...value }, disabled: false });
+        }
+        q.stats.push(altGroup);
+      } else {
+        mainGroup.filters.push({ id: statId, value, disabled: false });
+      }
     }
   }
 
