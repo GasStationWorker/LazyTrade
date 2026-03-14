@@ -537,11 +537,16 @@ function renderParsedItem(item) {
   h += `</div>`;
   h += `</div>${sep()}`;
 
+  // For Foulborn items: non-mutated mods are unchecked (one was replaced and may
+  // match the wrong stat). Mutated mods stay checked — they define the variant.
+  const isFoulborn = !!item.isFoulborn;
+  const mutatedSet = new Set(item.mutatedMods || []);
+
   // Enchant mods
   if (item.enchantMods.length) {
     h += `<div class="mod-group">`;
     h += `<div class="mod-group-label enchant-label">Enchant</div>`;
-    item.enchantMods.forEach((m, i) => h += modRow(`enc-${i}`, m, findStat(m, 'enchant', item.itemClass), 'enchant'));
+    item.enchantMods.forEach((m, i) => h += modRow(`enc-${i}`, m, findStat(m, 'enchant', item.itemClass), 'enchant', { defaultOff: isFoulborn }));
     h += `</div>${sep()}`;
   }
 
@@ -549,7 +554,7 @@ function renderParsedItem(item) {
   if (item.implicitMods.length) {
     h += `<div class="mod-group">`;
     h += `<div class="mod-group-label implicit-label">Implicit</div>`;
-    item.implicitMods.forEach((m, i) => h += modRow(`imp-${i}`, m, findStat(m, 'implicit', item.itemClass), 'implicit'));
+    item.implicitMods.forEach((m, i) => h += modRow(`imp-${i}`, m, findStat(m, 'implicit', item.itemClass), 'implicit', { defaultOff: isFoulborn }));
     h += `</div>${sep()}`;
   }
 
@@ -557,15 +562,19 @@ function renderParsedItem(item) {
   if (item.fracturedMods.length) {
     h += `<div class="mod-group">`;
     h += `<div class="mod-group-label fractured-label">Fractured</div>`;
-    item.fracturedMods.forEach((m, i) => h += modRow(`frac-${i}`, m, findStat(m, 'fractured', item.itemClass), 'fractured'));
+    item.fracturedMods.forEach((m, i) => h += modRow(`frac-${i}`, m, findStat(m, 'fractured', item.itemClass), 'fractured', { defaultOff: isFoulborn }));
     h += `</div>${sep()}`;
   }
 
   // Explicit mods
   if (item.explicitMods.length) {
     h += `<div class="mod-group">`;
-    h += `<div class="mod-group-label">Explicit Mods</div>`;
-    item.explicitMods.forEach((m, i) => h += modRow(`exp-${i}`, m, findStat(m, 'explicit', item.itemClass), 'explicit'));
+    h += `<div class="mod-group-label">Explicit Mods${isFoulborn ? ' <span class="tag tag-corrupted">Foulborn</span>' : ''}</div>`;
+    item.explicitMods.forEach((m, i) => {
+      const isMutated = mutatedSet.has(m);
+      // Mutated mods stay checked — they define the Foulborn variant
+      h += modRow(`exp-${i}`, m, findStat(m, 'explicit', item.itemClass), 'explicit', { defaultOff: isFoulborn && !isMutated });
+    });
     h += `</div>`;
     if (item.craftedMods.length) h += sep();
   }
@@ -574,7 +583,7 @@ function renderParsedItem(item) {
   if (item.craftedMods.length) {
     h += `<div class="mod-group">`;
     h += `<div class="mod-group-label crafted-label">Crafted</div>`;
-    item.craftedMods.forEach((m, i) => h += modRow(`cra-${i}`, m, findStat(m, 'crafted', item.itemClass), 'crafted'));
+    item.craftedMods.forEach((m, i) => h += modRow(`cra-${i}`, m, findStat(m, 'crafted', item.itemClass), 'crafted', { defaultOff: isFoulborn }));
     h += `</div>`;
   }
 
@@ -673,7 +682,7 @@ function toggleRowInput(id, label, checked, inputHtml) {
     <div class="row-inputs">${inputHtml}</div>
   </div>`;
 }
-function modRow(id, modText, stat, type) {
+function modRow(id, modText, stat, type, { defaultOff = false } = {}) {
   const isOption = stat?.optionId !== undefined;
   const val  = isOption ? null : extractModValue(modText);
   const ok   = !!stat;
@@ -692,7 +701,9 @@ function modRow(id, modText, stat, type) {
   const altAttr = altIds.length ? ` data-alt-ids="${esc(altIds.join(','))}"` : '';
   const negAttr = shouldNegate ? ' data-negated="1"' : '';
   let h = `<div class="toggle-row ${cls}" data-stat-id="${ok ? esc(stat.id) : ''}"${optAttr}${altAttr}${negAttr}>`;
-  h += `<input type="checkbox" id="mod-${id}" ${ok ? 'checked' : 'disabled'} data-mod="${esc(modText)}">`;
+  // For unique items: default mods unchecked (name is sufficient). Mutated mods stay checked.
+  const checked = ok && !defaultOff;
+  h += `<input type="checkbox" id="mod-${id}" ${checked ? 'checked' : (ok ? '' : 'disabled')} data-mod="${esc(modText)}">`;
   h += `<label for="mod-${id}">${esc(modText)}</label>`;
   h += indicator;
   if (val && ok) {
@@ -1415,11 +1426,20 @@ function buildStashPriceQuery(item) {
     }
   }
 
-  addModGroup(item.enchantMods,   'enchant');
-  addModGroup(item.implicitMods,  'implicit');
-  addModGroup(item.fracturedMods, 'fractured');
-  addModGroup(item.explicitMods,  'explicit');
-  addModGroup(item.craftedMods,   'crafted');
+  // For unique items, name+type is sufficient — unique-specific mods often
+  // don't have searchable stat IDs and cause zero results (APAT does the same).
+  // For Foulborn uniques, include only the mutated mod (defines the variant).
+  if (item.rarity === 'unique') {
+    if (item.isFoulborn && item.mutatedMods?.length) {
+      addModGroup(item.mutatedMods, 'explicit');
+    }
+  } else {
+    addModGroup(item.enchantMods,   'enchant');
+    addModGroup(item.implicitMods,  'implicit');
+    addModGroup(item.fracturedMods, 'fractured');
+    addModGroup(item.explicitMods,  'explicit');
+    addModGroup(item.craftedMods,   'crafted');
+  }
 
   return q;
 }

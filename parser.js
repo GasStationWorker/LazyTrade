@@ -144,7 +144,7 @@ function getModType(line) {
   if (!m) return 'explicit';
   const t = m[1].toLowerCase();
   if (t === 'enchantment') return 'enchant';
-  if (t === 'mutated' || t === 'scourge') return 'explicit'; // no separate API type, treated as explicit
+  if (t === 'mutated' || t === 'scourge') return 'mutated'; // separate from 'explicit' for tracking, stored in both arrays
   return t;
 }
 
@@ -226,6 +226,8 @@ function parseItemText(text) {
     itemLevel: null, quality: null, qualityType: '',
     sockets: '', socketCount: 0, linkCount: 0,
     explicitMods: [], implicitMods: [], craftedMods: [], fracturedMods: [], enchantMods: [],
+    mutatedMods: [],  // track which mods are Foulborn-mutated (also in explicitMods)
+    isFoulborn: false,
     corrupted: false, mirrored: false, identified: true, synthesised: false,
     influences: [],
     // Weapon
@@ -262,6 +264,7 @@ function parseItemText(text) {
   for (const prefix of UNIQUE_NAME_PREFIXES) {
     if (item.name.startsWith(prefix)) {
       item.name = item.name.slice(prefix.length);
+      item.isFoulborn = true;
       break;
     }
   }
@@ -381,6 +384,7 @@ function parseItemText(text) {
         case 'fractured': item.fracturedMods.push(clean); break;
         case 'enchant':   item.enchantMods.push(clean);  break;
         case 'implicit':  item.implicitMods.push(clean); break;
+        case 'mutated':   item.explicitMods.push(clean); item.mutatedMods.push(clean); item.isFoulborn = true; break;
         default:          item.explicitMods.push(clean); break;
       }
     }
@@ -649,6 +653,8 @@ function convertStashItem(json) {
     craftedMods: json.craftedMods || [],
     fracturedMods: json.fracturedMods || [],
     enchantMods: json.enchantMods || [],
+    mutatedMods: [],
+    isFoulborn: false,
     corrupted: !!json.corrupted,
     mirrored: !!json.duplicated,
     identified: json.identified !== false,
@@ -694,7 +700,11 @@ function convertStashItem(json) {
   // These are treated as explicit mods for trade search purposes
   if (json.scourgeMods) item.explicitMods.push(...json.scourgeMods);
   if (json.crucibleMods) item.explicitMods.push(...json.crucibleMods);
-  if (json.mutatedMods) item.explicitMods.push(...json.mutatedMods);
+  if (json.mutatedMods) {
+    item.explicitMods.push(...json.mutatedMods);
+    item.mutatedMods.push(...json.mutatedMods);
+    item.isFoulborn = true;
+  }
   // Log all mod-like fields we might be missing
   const KNOWN_FIELDS = new Set([
     'explicitMods','implicitMods','craftedMods','fracturedMods','enchantMods',
