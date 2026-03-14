@@ -1366,12 +1366,35 @@ function openStashItemInSearch(item) {
   placeholder.style.display    = 'flex';
   searchStatus.textContent  = '';
   searchStatus.className    = 'search-status';
-  // Put a summary in the input box so user knows what's loaded
+  // Reconstruct full item text in the input box
   const lines = [];
-  if (item.rarity) lines.push(`Rarity: ${item.rarity.charAt(0).toUpperCase() + item.rarity.slice(1)}`);
+  if (item.itemClass) lines.push(`Item Class: ${item.itemClass}`);
+  lines.push(`Rarity: ${item.rarity.charAt(0).toUpperCase() + item.rarity.slice(1)}`);
   if (item.name) lines.push(item.name);
   if (item.baseType) lines.push(item.baseType);
-  itemInput.value = lines.join('\n') + '\n(loaded from stash)';
+  lines.push('--------');
+  if (item.quality) lines.push(`Quality: +${item.quality}%`);
+  if (item.armour) lines.push(`Armour: ${item.armour}`);
+  if (item.evasion) lines.push(`Evasion Rating: ${item.evasion}`);
+  if (item.energyShield) lines.push(`Energy Shield: ${item.energyShield}`);
+  if (item.ward) lines.push(`Ward: ${item.ward}`);
+  if (item._physLine) lines.push(`Physical Damage: ${item._physLine}`);
+  if (item._eleLine) lines.push(`Elemental Damage: ${item._eleLine}`);
+  if (item.critChance) lines.push(`Critical Strike Chance: ${item.critChance}%`);
+  if (item.aps) lines.push(`Attacks per Second: ${item.aps}`);
+  if (item.mapTier) lines.push(`Map Tier: ${item.mapTier}`);
+  if (item.gemLevel) lines.push(`Level: ${item.gemLevel}`);
+  if (item.requiresLevel) { lines.push('--------'); lines.push(`Requirements:`); lines.push(`Level: ${item.requiresLevel}`); }
+  if (item.sockets) { lines.push('--------'); lines.push(`Sockets: ${item.sockets}`); }
+  if (item.itemLevel) { lines.push('--------'); lines.push(`Item Level: ${item.itemLevel}`); }
+  if (item.implicitMods.length) { lines.push('--------'); item.implicitMods.forEach(m => lines.push(`${m} (implicit)`)); }
+  if (item.explicitMods.length) { lines.push('--------'); item.explicitMods.forEach(m => lines.push(m)); }
+  if (item.craftedMods.length) item.craftedMods.forEach(m => lines.push(`${m} (crafted)`));
+  if (item.fracturedMods.length) item.fracturedMods.forEach(m => lines.push(`${m} (fractured)`));
+  if (item.corrupted) lines.push('--------\nCorrupted');
+  if (item.mirrored) lines.push('Mirrored');
+  lines.push('--------\n(loaded from stash)');
+  itemInput.value = lines.join('\n');
   // Auto-trigger the search so results appear on the right
   handleSearch();
 }

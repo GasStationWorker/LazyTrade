@@ -531,14 +531,16 @@ function findStat(modText, preferType, itemClass, statsDb) {
     if (!matches.length) return null;
 
     // Select strategy: if multiple matches and we know the item category,
-    // prefer the local stat for armour/weapon items, non-local for others.
+    // prefer the local stat for explicit mods on armour/weapon items, non-local for others.
+    // Implicits, enchants, crafted, fractured mods are never local.
     let primary = matches[0];
     if (matches.length > 1 && itemClass) {
       const isArmour = DEFENCE_CLASSES.has(itemClass);
       const isWeapon = WEAPON_CLASSES.has(itemClass);
       const localMatch    = matches.find(s => s.text.toLowerCase().includes('(local)'));
       const nonLocalMatch = matches.find(s => !s.text.toLowerCase().includes('(local)'));
-      if ((isArmour || isWeapon) && localMatch) primary = localMatch;
+      const modIsExplicit = preferType === 'explicit';
+      if (modIsExplicit && (isArmour || isWeapon) && localMatch) primary = localMatch;
       else if (nonLocalMatch) primary = nonLocalMatch;
     }
 
@@ -779,47 +781,81 @@ function convertStashItem(json) {
     item.totalDps = round1((item.physDps || 0) + (item.eleDps || 0));
   }
 
-  // ── Derive item class from category/icon ──
-  // The stash API doesn't provide itemClass directly, so we infer from the icon URL
-  // which contains the item category path, or from frameType for special types.
-  if (json.frameType === 4) {
-    item.itemClass = 'Skill Gems';
-  } else if (json.frameType === 5) {
-    item.itemClass = 'Stackable Currency';
-  } else if (json.frameType === 6) {
-    item.itemClass = 'Divination Cards';
-  } else if (json.icon) {
-    // Icon URLs contain category hints like /2DItems/Weapons/TwoHandWeapons/Bows/
-    const ic = json.icon.toLowerCase();
-    if (ic.includes('/weapons/')) {
-      if (ic.includes('bows'))              item.itemClass = 'Bows';
-      else if (ic.includes('claws'))        item.itemClass = 'Claws';
-      else if (ic.includes('daggers'))      item.itemClass = 'Daggers';
-      else if (ic.includes('wands'))        item.itemClass = 'Wands';
-      else if (ic.includes('onehandswords')) item.itemClass = 'One Hand Swords';
-      else if (ic.includes('twohandswords')) item.itemClass = 'Two Hand Swords';
-      else if (ic.includes('onehandaxes'))  item.itemClass = 'One Hand Axes';
-      else if (ic.includes('twohandaxes'))  item.itemClass = 'Two Hand Axes';
-      else if (ic.includes('onehandmaces')) item.itemClass = 'One Hand Maces';
-      else if (ic.includes('twohandmaces')) item.itemClass = 'Two Hand Maces';
-      else if (ic.includes('staves'))       item.itemClass = 'Staves';
-      else if (ic.includes('sceptres'))     item.itemClass = 'Sceptres';
-    } else if (ic.includes('/armours/')) {
-      if (ic.includes('bodyarmours'))     item.itemClass = 'Body Armours';
-      else if (ic.includes('helmets'))    item.itemClass = 'Helmets';
-      else if (ic.includes('gloves'))     item.itemClass = 'Gloves';
-      else if (ic.includes('boots'))      item.itemClass = 'Boots';
-      else if (ic.includes('shields'))    item.itemClass = 'Shields';
-    } else if (ic.includes('/accessories/')) {
-      if (ic.includes('rings'))           item.itemClass = 'Rings';
-      else if (ic.includes('amulets'))    item.itemClass = 'Amulets';
-      else if (ic.includes('belts'))      item.itemClass = 'Belts';
-    } else if (ic.includes('/jewels/')) {
-      item.itemClass = ic.includes('abyss') ? 'Abyss Jewels' : 'Jewels';
-    } else if (ic.includes('/quivers/')) {
-      item.itemClass = 'Quivers';
-    } else if (ic.includes('/maps/'))    item.itemClass = 'Maps';
-    else if (ic.includes('/flasks/'))    item.itemClass = 'Utility Flasks';
+  // ── Derive item class ──
+  // Priority: 1) descrText (reliable), 2) frameType, 3) icon URL fallback
+  const DESCR_TO_CLASS = {
+    'claw': 'Claws', 'bow': 'Bows', 'staff': 'Staves', 'wand': 'Wands',
+    'dagger': 'Daggers', 'rune dagger': 'Daggers', 'sceptre': 'Sceptres',
+    'one hand sword': 'One Hand Swords', 'two hand sword': 'Two Hand Swords',
+    'thrusting one hand sword': 'One Hand Swords',
+    'one hand axe': 'One Hand Axes', 'two hand axe': 'Two Hand Axes',
+    'one hand mace': 'One Hand Maces', 'two hand mace': 'Two Hand Maces',
+    'warstaff': 'Staves',
+    'body armour': 'Body Armours', 'helmet': 'Helmets', 'gloves': 'Gloves',
+    'boots': 'Boots', 'shield': 'Shields', 'buckler': 'Shields',
+    'ring': 'Rings', 'amulet': 'Amulets', 'belt': 'Belts',
+    'quiver': 'Quivers', 'jewel': 'Jewels', 'abyss jewel': 'Abyss Jewels',
+    'map': 'Maps', 'utility flask': 'Utility Flasks',
+    'life flask': 'Life Flasks', 'mana flask': 'Mana Flasks',
+    'hybrid flask': 'Hybrid Flasks',
+  };
+
+  // Try descrText first (some API versions include it)
+  if (json.descrText) {
+    const d = json.descrText.toLowerCase().trim();
+    if (DESCR_TO_CLASS[d]) item.itemClass = DESCR_TO_CLASS[d];
+  }
+
+  // frameType for special types
+  if (!item.itemClass) {
+    if (json.frameType === 4)      item.itemClass = 'Skill Gems';
+    else if (json.frameType === 5) item.itemClass = 'Stackable Currency';
+    else if (json.frameType === 6) item.itemClass = 'Divination Cards';
+  }
+
+  // Decode base64 icon path (GGG encodes as /gen/image/WzI1Li...base64...)
+  if (!item.itemClass && json.icon) {
+    let iconPath = json.icon.toLowerCase();
+    const b64Match = json.icon.match(/\/gen\/image\/([A-Za-z0-9+/=_-]+)/);
+    if (b64Match) {
+      try { iconPath = atob(b64Match[1].replace(/-/g, '+').replace(/_/g, '/')).toLowerCase(); } catch {}
+    }
+    if (iconPath.includes('/weapons/') || iconPath.includes('weapons/')) {
+      if (iconPath.includes('claw'))              item.itemClass = 'Claws';
+      else if (iconPath.includes('bow'))          item.itemClass = 'Bows';
+      else if (iconPath.includes('dagger'))       item.itemClass = 'Daggers';
+      else if (iconPath.includes('wand'))         item.itemClass = 'Wands';
+      else if (iconPath.includes('onehandsword')) item.itemClass = 'One Hand Swords';
+      else if (iconPath.includes('twohandsword')) item.itemClass = 'Two Hand Swords';
+      else if (iconPath.includes('onehandaxe'))   item.itemClass = 'One Hand Axes';
+      else if (iconPath.includes('twohandaxe'))   item.itemClass = 'Two Hand Axes';
+      else if (iconPath.includes('onehandmace'))  item.itemClass = 'One Hand Maces';
+      else if (iconPath.includes('twohandmace'))  item.itemClass = 'Two Hand Maces';
+      else if (iconPath.includes('stave') || iconPath.includes('staff')) item.itemClass = 'Staves';
+      else if (iconPath.includes('sceptre'))      item.itemClass = 'Sceptres';
+    } else if (iconPath.includes('armour')) {
+      if (iconPath.includes('bodyarmour'))     item.itemClass = 'Body Armours';
+      else if (iconPath.includes('helmet'))    item.itemClass = 'Helmets';
+      else if (iconPath.includes('glove'))     item.itemClass = 'Gloves';
+      else if (iconPath.includes('boot'))      item.itemClass = 'Boots';
+      else if (iconPath.includes('shield'))    item.itemClass = 'Shields';
+    } else if (iconPath.includes('accessor')) {
+      if (iconPath.includes('ring'))           item.itemClass = 'Rings';
+      else if (iconPath.includes('amulet'))    item.itemClass = 'Amulets';
+      else if (iconPath.includes('belt'))      item.itemClass = 'Belts';
+    } else if (iconPath.includes('jewel')) {
+      item.itemClass = iconPath.includes('abyss') ? 'Abyss Jewels' : 'Jewels';
+    } else if (iconPath.includes('quiver'))    item.itemClass = 'Quivers';
+    else if (iconPath.includes('/maps/') || iconPath.includes('maps/')) item.itemClass = 'Maps';
+    else if (iconPath.includes('flask'))       item.itemClass = 'Utility Flasks';
+  }
+
+  // Last resort: match baseType keywords (e.g. "Vaal Claw" → Claws)
+  if (!item.itemClass && item.baseType) {
+    const bt = item.baseType.toLowerCase();
+    for (const [keyword, cls] of Object.entries(DESCR_TO_CLASS)) {
+      if (bt.includes(keyword)) { item.itemClass = cls; break; }
+    }
   }
 
   item.category = classifyItemType(item);
