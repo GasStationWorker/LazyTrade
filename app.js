@@ -1334,20 +1334,92 @@ async function handleStashConnect() {
 // Build a simplified trade query for auto-pricing (no DOM dependencies)
 function buildStashPriceQuery(item) {
   const listing = getListingFilter();
+  const mainGroup = { type: 'and', filters: [] };
   const q = {
     status: { option: listing.status },
-    stats:  [{ type: 'and', filters: [] }],
+    stats:  [mainGroup],
     filters: {},
   };
 
+  // Name / type
   if (item.rarity === 'unique' && item.name) {
     q.name = item.name;
     q.type = item.baseType;
-  } else if (item.baseType) {
+  } else if (item.rarity !== 'magic' && item.baseType) {
     q.type = item.baseType;
-    const rarityOption = item.rarity === 'magic' ? 'magic' : (item.rarity === 'normal' ? 'normal' : 'nonunique');
-    q.filters.type_filters = { disabled: false, filters: { rarity: { option: rarityOption } } };
   }
+
+  // Rarity filter for non-uniques
+  if (item.rarity !== 'unique') {
+    const rarityOption = item.rarity === 'magic' ? 'magic' : (item.rarity === 'normal' ? 'normal' : 'nonunique');
+    q.filters.type_filters = q.filters.type_filters || { disabled: false, filters: {} };
+    q.filters.type_filters.filters.rarity = { option: rarityOption };
+  }
+
+  // Synthesised
+  if (item.synthesised) {
+    (q.filters.misc_filters = q.filters.misc_filters || { disabled: false, filters: {} })
+      .filters.synthesised_item = { option: 'true' };
+  }
+
+  // Corrupted
+  if (item.corrupted) {
+    (q.filters.misc_filters = q.filters.misc_filters || { disabled: false, filters: {} })
+      .filters.corrupted = { option: 'true' };
+  }
+
+  // Item level for rares ilvl 80+
+  if (item.rarity === 'rare' && item.itemLevel >= 80) {
+    (q.filters.misc_filters = q.filters.misc_filters || { disabled: false, filters: {} })
+      .filters.ilvl = { min: item.itemLevel };
+  }
+
+  // Links (6-link)
+  if (item.linkCount >= 5) {
+    q.filters.socket_filters = { disabled: false, filters: { links: { min: item.linkCount } } };
+  }
+
+  // All mods — build stat filters from item data directly
+  function addModGroup(mods, preferType) {
+    for (const modText of mods) {
+      const stat = findStat(modText, preferType, item.itemClass);
+      if (!stat) continue;
+      const val = extractModValue(modText);
+      const value = {};
+      if (stat.optionId !== undefined) {
+        value.option = stat.optionId;
+      } else if (val && val.min !== null) {
+        // Use the item's actual values as the search filter
+        if (stat.negated) {
+          // Negated: swap and negate min/max
+          if (val.max !== null) value.min = -val.max;
+          else value.min = -val.min;
+          if (val.min !== null && val.max !== null) value.max = -val.min;
+        } else {
+          value.min = val.min;
+          if (val.max !== null) value.max = val.max;
+        }
+      }
+
+      if (stat.alternates) {
+        // Multiple stat IDs match — use count group with min:1
+        const altGroup = { type: 'count', value: { min: 1 }, filters: [] };
+        altGroup.filters.push({ id: stat.id, value: { ...value }, disabled: false });
+        for (const altId of stat.alternates) {
+          altGroup.filters.push({ id: altId, value: { ...value }, disabled: false });
+        }
+        q.stats.push(altGroup);
+      } else {
+        mainGroup.filters.push({ id: stat.id, value, disabled: false });
+      }
+    }
+  }
+
+  addModGroup(item.enchantMods,   'enchant');
+  addModGroup(item.implicitMods,  'implicit');
+  addModGroup(item.fracturedMods, 'fractured');
+  addModGroup(item.explicitMods,  'explicit');
+  addModGroup(item.craftedMods,   'crafted');
 
   return q;
 }

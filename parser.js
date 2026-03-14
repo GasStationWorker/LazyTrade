@@ -681,6 +681,40 @@ function convertStashItem(json) {
     }
   }
 
+  // ── Strip name prefixes (Foulborn = Necropolis mutated items) ──
+  const NAME_PREFIXES = ['Foulborn '];
+  for (const prefix of NAME_PREFIXES) {
+    if (item.name.startsWith(prefix)) {
+      item.name = item.name.slice(prefix.length);
+      break;
+    }
+  }
+
+  // ── Mutated / Scourge / Crucible mods (extra mod fields from various leagues) ──
+  // These are treated as explicit mods for trade search purposes
+  if (json.scourgeMods) item.explicitMods.push(...json.scourgeMods);
+  if (json.crucibleMods) item.explicitMods.push(...json.crucibleMods);
+  if (json.mutatedMods) item.explicitMods.push(...json.mutatedMods);
+  // Log all mod-like fields we might be missing
+  const KNOWN_FIELDS = new Set([
+    'explicitMods','implicitMods','craftedMods','fracturedMods','enchantMods',
+    'scourgeMods','crucibleMods','mutatedMods','utilityMods','cosmeticMods',
+    'name','typeLine','icon','id','ilvl','frameType','identified','corrupted',
+    'duplicated','synthesised','influences','sockets','properties','requirements',
+    'flavourText','descrText','secDescrText','prophecyText','extended','league',
+    'x','y','w','h','inventoryId','verified','stackSize','maxStackSize',
+    'nextLevelRequirements','additionalProperties','artFilename','note',
+    'talismanTier','incubatedItem','hybrid','logbookMods','ultimatumMods',
+    'support','abyssJewel','delve','fractured','elder','shaper','searing',
+    'tangled','foilVariation','stash','baseType','category',
+  ]);
+  for (const key of Object.keys(json)) {
+    if (!KNOWN_FIELDS.has(key) && key.toLowerCase().includes('mod')) {
+      console.warn('[Stash] Unknown mod field:', key, '=', json[key]);
+      if (Array.isArray(json[key])) item.explicitMods.push(...json[key]);
+    }
+  }
+
   // ── Influences ──
   if (json.influences) {
     for (const [inf, val] of Object.entries(json.influences)) {
