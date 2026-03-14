@@ -1426,11 +1426,11 @@ function buildStashPriceQuery(item) {
     }
   }
 
-  // For unique items, name+type is sufficient — unique-specific mods often
-  // don't have searchable stat IDs and cause zero results (APAT does the same).
-  // For Foulborn uniques, include only the mutated mod (defines the variant).
-  if (item.rarity === 'unique') {
-    if (item.isFoulborn && item.mutatedMods?.length) {
+  // For Foulborn uniques, skip non-mutated mods (one was replaced and may match
+  // the wrong stat). Include only the mutated mod that defines the variant.
+  // All other items (including regular uniques) include all mods.
+  if (item.isFoulborn && item.rarity === 'unique') {
+    if (item.mutatedMods?.length) {
       addModGroup(item.mutatedMods, 'explicit');
     }
   } else {
