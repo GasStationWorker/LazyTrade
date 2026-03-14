@@ -353,10 +353,10 @@ function handleParse() {
   renderParsedItem(parsedData);
   attachDynamicListeners();
   parsedSection.style.display  = 'block';
-  resultsSection.style.display = 'none';
-  placeholder.style.display    = 'flex';
   searchStatus.textContent  = '';
   searchStatus.className    = 'search-status';
+  // Auto-search immediately after parsing
+  handleSearch();
 }
 
 let pseudoCounter = 0;
