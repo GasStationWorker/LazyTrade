@@ -151,7 +151,11 @@ function getModType(line) {
 function stripModTag(line) { return line.replace(MOD_TYPE_RE, '').trim(); }
 
 function isPropertyLine(l) {
-  return /^(Item Level|Quality|Sockets|Level|Physical Damage|Elemental Damage|Chaos Damage|Fire Damage|Cold Damage|Lightning Damage|Critical Strike Chance|Attacks per Second|Weapon Range|Armour|Energy Shield|Evasion Rating|Ward|Chance to Block|Requirements|Str|Dex|Int|Map Tier|Stack Size|Experience|Movement Speed|Cost|Cooldown Time|Cast Time|Effectiveness of Added Damage|Mana Multiplier|Mana Cost|Next-level|Reservation|Lasts|Consumes|Recovers)\b/.test(l);
+  // Flask/consumable properties have no colon
+  if (/^(Lasts|Consumes|Recovers)\b/.test(l)) return true;
+  // All other properties follow "Key: value" or "Key (qualifier): value" format.
+  // Requiring ':' prevents mods like "Evasion Rating is increased by ..." from matching.
+  return /^(Item Level|Quality|Sockets|Level|Physical Damage|Elemental Damage|Chaos Damage|Fire Damage|Cold Damage|Lightning Damage|Critical Strike Chance|Attacks per Second|Weapon Range|Armour|Energy Shield|Evasion Rating|Ward|Chance to Block|Requirements|Str|Dex|Int|Map Tier|Stack Size|Experience|Movement Speed|Cost|Cooldown Time|Cast Time|Effectiveness of Added Damage|Mana Multiplier|Mana Cost|Next-level|Reservation)\b/.test(l) && l.includes(':');
 }
 
 // Detect sections that are definitively NOT mods. Everything else → treat as mods.
@@ -577,6 +581,19 @@ function findStat(modText, preferType, itemClass, statsDb) {
   });
   if (exactResult) return exactResult;
 
+  // Retry with trailing-s stripped (trade DB uses "second" but game says "seconds", etc.)
+  const stripPlural = t => t.replace(/\bseconds\b/g, 'second');
+  const normSP = stripPlural(norm);
+  if (normSP !== norm) {
+    const normPlusSP = '+' + normSP;
+    const normNoSignSP = stripPlural(normNoSign);
+    const spResult = collectAll(s => {
+      const st = stripPlural(s.text.toLowerCase());
+      return st === normSP || st === normPlusSP || st === normNoSignSP;
+    });
+    if (spResult) return spResult;
+  }
+
   // Try direction-swapped match (reduced->increased, less->more)
   if (swappedMod) {
     const swResult = collectAll(s => {
@@ -609,13 +626,21 @@ function findStat(modText, preferType, itemClass, statsDb) {
     if (hasAlsoGrant  && st.includes('grant:') && !st.includes('also grant:')) return false;
     return true;
   });
-  let best = null, bestRatio = 0;
+  let best = null, bestScore = 0;
   for (const s of pool) {
     const st = s.text.toLowerCase();
-    let hits = 0;
-    for (const w of words) if (st.includes(w)) hits++;
-    const ratio = hits / words.length;
-    if (ratio > bestRatio && ratio >= 0.75) { bestRatio = ratio; best = s; }
+    const stWords = st.replace(/[#%]/g, '').trim().split(/\s+/).filter(w => w.length > 2);
+    // Forward: how many mod words are in the stat text
+    let fwd = 0;
+    for (const w of words) if (st.includes(w)) fwd++;
+    const fwdRatio = fwd / words.length;
+    // Reverse: how many stat words are in the mod text
+    let rev = 0;
+    for (const w of stWords) if (normNoSign.includes(w)) rev++;
+    const revRatio = stWords.length ? rev / stWords.length : 0;
+    // Both directions must be strong to avoid false positives
+    const score = Math.min(fwdRatio, revRatio);
+    if (score > bestScore && score >= 0.75) { bestScore = score; best = s; }
   }
   return best;
 }
